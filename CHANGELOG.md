@@ -12,8 +12,17 @@
   of a running order, a real Stop action, and no stale timeout or cleanup that
   can terminate a later turn.
 - Fixed clean installs so bundled Gritty is discovered without a pet copied
-  into the user's config. Legacy settings and duplicate shell entries migrate
-  into one canonical bar entry.
+  into the user's config, starts at size L, and appears at the bottom-right of
+  the active screen. Legacy settings and duplicate shell entries migrate into
+  one canonical bar entry.
+- Matched the companion's theme repaint to Omarchy's own 420 ms, centre-out
+  wallpaper reveal. Cached and live-tinted coats now transition without raw
+  colour flashes or a visible Quattro orientation change.
+- Tightened click-versus-drag handling, prompt focus, tucked-edge reachability,
+  speech placement, panel scrolling, and input shielding across one- and
+  multi-monitor layouts.
+- Followed Omarchy 4.1's native Quake-console workspace contract when present,
+  with the Omarchy 4.0 scratchpad retained as a safe compatibility fallback.
 - Removed the Claude hook installer and its edits to external settings.
   Existing OmaPets-compatible state remains an optional, passive input.
 - Restored the approved Quattro artwork with complete upstream Omarchy MIT

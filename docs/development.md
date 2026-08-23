@@ -159,7 +159,7 @@ Before publishing or preparing a marketplace submission:
    no hook or external application setting may remain. Only the documented
    state/history directory may survive.
 9. Build and byte-check `omarchief-artwork-sources.tar.gz` with the helper
-   above. Inspect its seven exact members, record the printed SHA-256, and
+   above. Inspect its eight exact members, record the printed SHA-256, and
    attach that file to release `v$(jq -r .version manifest.json)`. Confirm the
    archive itself and `tools/source/*.png` are absent from `git ls-files`.
 10. Require the GitHub checks for `release_sha` to pass. After submission,
@@ -167,7 +167,7 @@ Before publishing or preparing a marketplace submission:
     Baseline to refer to that same SHA before approval. Re-run the process for
     any changed commit; old evidence does not approve new code.
 
-For the marketplace listing, use category `Productivity` and the tags `ai`,
+For the marketplace listing, use category `Desktop` and the tags `ai`,
 `bar`, and `quickshell`. Review all five submission checkboxes against the
 exact release commit, including ownership or permission for the plugin and
 preview assets, before explicitly authorizing the issue.

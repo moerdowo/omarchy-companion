@@ -5,7 +5,7 @@
   "version": "4.0.0",
   "author": "daventhedude",
   "license": "MIT",
-  "description": "A theme-aware desktop companion that takes orders, carries agent conversations, and keeps useful context one click away.",
+  "description": "Your desktop's chief of staff: an Omarchy-native, theme-aware companion that lives at the screen edge, takes orders through your configured AI agent, and keeps session-aware conversations in place. Drag or tuck it, move it across monitors, get replies in a bubble or hand work to Omarchy's native console, and keep status and settings one click away in the bar — without a daemon, hook, or extra package.",
   "kinds": [
     "service",
     "bar-widget"

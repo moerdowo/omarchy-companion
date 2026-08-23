@@ -55,7 +55,7 @@ the canonical settings location after migration.
   right-click opens the console there.
 - Start a new conversation whenever context should not carry forward.
 
-![Omarchief's native settings with Quattro on the desktop](docs/settings.png)
+![Omarchief's native settings with Gritty on the desktop](docs/settings.png)
 
 The creature follows the desktop rather than drawing a second UI language.
 Its controls use Omarchy's colors, typography, spacing, panels, focus states,
@@ -114,11 +114,13 @@ Private vulnerability reports follow [SECURITY.md](SECURITY.md).
 
 ## Bring your own companion
 
-Two companions are bundled:
+Three companions are bundled:
 
 - `gritty` — the default, with drawn moods, a blink, and idle expressions;
 - `quattro` — the rally car from Omarchy's Tokyo Night wallpaper, adapted as
-  a still, theme-aware companion under Omarchy's MIT licence.
+  a still, theme-aware companion under Omarchy's MIT licence;
+- `gritty-front` — the same weathered machine facing straight ahead, kept as
+  a deliberately stark still companion.
 
 Drop a folder containing `pet.json` and its spritesheet into:
 
