@@ -57,7 +57,11 @@ jobs:
           ln -s "$imagemagick_root/squashfs-root/AppRun" "$imagemagick_bin/magick"
           "$imagemagick_bin/magick" -version | grep -F "Version: ImageMagick 7."
           echo "$imagemagick_bin" >> "$GITHUB_PATH"
-      - run: node --test tests/*.test.mjs
+      # ImageMagick's portable AppImage is not safely re-entrant when the two
+      # artwork builders and the live shader test start at the same instant on
+      # a small runner. Serial execution is deterministic and still finishes
+      # this complete suite in seconds.
+      - run: node --test --test-concurrency=1 tests/*.test.mjs
       # The cold-start check needs a Wayland session and the Omarchy shell,
       # so it belongs on a desktop rather than in CI: tools/coldstart-check
       # is what a release is checked with.
