@@ -1,8 +1,8 @@
 # Making a pet for Omarchief
 
 A pet is a folder with a `pet.json` and one spritesheet. Drop it into
-`~/.config/omarchief/pets/<id>/` and it appears under **Who stands there**
-in the bar menu. To name it without the menu:
+`~/.config/omarchief/pets/<id>/` and it appears under **Companion** in the
+bar widget's settings. To name it without the panel:
 
 ```bash
 omarchy-shell omarchief pet <id>
@@ -10,20 +10,27 @@ omarchy-shell omarchief pet <id>
 
 which writes `pet` onto this plugin's entry in
 `~/.config/omarchy/shell.json`, where the shell keeps every plugin's
-settings. `~/.config/omarchy/omarchief.json` is still read for the same
-keys, so an older setup keeps working.
+settings. A pre-4.0 `~/.config/omarchy/omarchief.json` is read once and
+migrated there, so an older setup keeps working without creating two sources
+of truth.
 
-Pets from the Codex/Petdex ecosystem work as they are — the first nine
-rows mean what they mean everywhere. Everything past row eight is
-Omarchief's own, and a reader that does not know about it still finds
-what it expects.
+Codex/Petdex v1 and v2 pets work as they are. Rows 0–8 keep their standard
+meaning. A v2 manifest sets `spriteVersionNumber` to `2` and reserves rows
+9–10 for its sixteen look directions; Omarchief leaves those rows intact.
+Optional Omarchief activities are explicitly declared and belong after the
+standard atlas: row 9 onward for v1, row 11 onward for v2.
 
 ## The sheet
 
-A grid of cells, eight columns wide. Every cell is the same size, and the
-sheet is as tall as it has rows. Omarchief works out the cell size from
-the sheet and the row count, so any cell size will do as long as the
-proportions match the shipped pets (192 × 208 is the ecosystem's).
+Every sheet is a regular grid of equal-size cells. A Codex/Petdex animated
+atlas uses the ecosystem's eight columns of 192 × 208 frames. An expression
+grid may declare another `columns` value and may use rectangular cells of any
+proportion; Omarchief measures their aspect ratio from the loaded sheet.
+Keep the sheet width evenly divisible by `columns` and its height evenly
+divisible by `rows`, so filtering never samples across a cell boundary.
+
+The row meanings below apply to an animated Codex/Petdex atlas. A still
+expression grid names cells directly with `faces` instead.
 
 | Row | Meaning | Frames |
 |---|---|---|
@@ -36,7 +43,8 @@ proportions match the shipped pets (192 × 208 is the ecosystem's).
 | 6 | waiting for you | up to 8 |
 | 7 | working | up to 8 |
 | 8 | finished | up to 8 |
-| 9+ | activities, one row each | declared in `pet.json` |
+| 9–10 | v2 look directions | eight each; absent in v1 |
+| 9+ (v1), 11+ (v2) | optional activities | declared in `pet.json` |
 
 Rows the pet does not use should repeat its resting pose rather than be
 left blank, so a reader that plays them shows something sensible.
@@ -45,10 +53,10 @@ left blank, so a reader that plays them shows something sensible.
 
 ```json
 {
-  "id": "gritty",
-  "displayName": "Gritty",
+  "id": "example-animated",
+  "displayName": "Example Animated Pet",
   "description": "One sentence, shown wherever pets are listed.",
-  "spritesheetPath": "gritty-v10.webp",
+  "spritesheetPath": "example-animated.webp",
 
   "rows": 16,
   "walkFrames": 6,
@@ -63,16 +71,23 @@ left blank, so a reader that plays them shows something sensible.
 
 | Field | Meaning |
 |---|---|
+| `id` | Optional stable id. The containing folder name remains the lookup key |
+| `displayName` | Codex/Petdex human-readable name shown in the companion picker (`name` is accepted as a legacy alias) |
+| `description` | One-sentence description for catalogues and future surfaces |
 | `spritesheetPath` | The sheet, relative to `pet.json` |
+| `size` | The artist's preferred on-screen height in pixels, rounded and accepted from 32 through 240. A user-selected size wins; without either preference the runtime uses 56 px |
+| `spriteVersionNumber` | Animated-atlas version used only when `rows` is absent or invalid. A numeric value of 2 or greater selects the eleven-row layout; otherwise nine rows are assumed |
 | `columns` | How many cells across the sheet is. Eight — the walk-cycle width — unless you say otherwise |
 | `faces` | A mood to the cell that shows it: `{ "idle": [0, 0], "error": [0, 1] }`. A pet with faces is a still pet — see below |
+| `idleFaces` | Optional list of `[row, column]` cells a resting expression pet may borrow. Invalid, duplicate, out-of-grid, and `idle` cells are discarded; when omitted, the neutral `parked`, `success`, `love`, and `dragged` faces form the pool |
 | `blink` | One cell, the resting face with its eyes closed. Shown for a moment every few seconds — see below |
-| `display` | Where the pet has a screen on it, if it does: `{ "x", "y", "w", "h", "slope" }` — see below |
 | `content` | Where the drawing sits inside its cell: `{ "left", "right", "top", "bottom" }` as fractions — see below |
 | `mirror` | `true` if the drawing may be flipped when the creature stands on the right of the screen. See below |
 | `rows` | How many rows the sheet has. Without it, nine are assumed (eleven for `spriteVersionNumber` 2) |
 | `walkFrames` | How long the walk cycle is. A cycle shorter than eight columns stutters through the empty cells without this |
 | `sleepRow` | A row holding a real sleeping pose. Without it, the resting pose is simply dimmed |
+| `stillRows` | Optional list of animated-atlas row numbers whose cells repeat one still drawing. Valid rows are rounded down and kept between zero and `rows - 1`; their frame timer stays stopped |
+| `pixelArt` | Literal `true` disables smooth filtering and mipmaps so hard pixel edges survive scaling; every other value keeps normal filtering |
 | `themeable` | The hue window that counts as the pet's skin — see below |
 | `activities` | Idle performances, one row each. Each carries the milliseconds its frames are held; `tools/build-atlas.py` measures them, and you are welcome to tune them by hand afterwards |
 | `themeTint` | `true`, `false` or a strength between 0 and 1: the live fallback tint. `themeable` is the better path; this is what runs when a redraw cannot |
@@ -111,12 +126,13 @@ kept whole for any accent with colour in it, and surrendered only as the
 accent approaches grey, where a vivid pet would misrepresent the theme
 and the hue has no meaning left anyway.
 
-Lightness is then fitted, as a gamma so nothing clips and black stays
-black and white stays white — lifted on a dark desktop, deepened on a
-pale one, since a wan creature on cream is exactly as hard to see as a
-dim one on black. The body is what is measured — outlines and dark
-screens are meant to stay dark, and averaging them in only bleaches the
-artwork chasing a number.
+Lightness inside that same paint window is then fitted as a gamma, so black
+stays black, white stays white, and cables, metal, eyes, and rust remain
+byte-for-byte as drawn. The fit heads toward whichever of black or white
+contrasts more with the exact background — perceptual mid-tones cannot be
+split reliably into simply “dark” and “light”. The body is what is measured;
+outlines and dark screens are meant to stay dark, and averaging them in only
+bleaches the artwork chasing a number.
 
 How far it goes depends on what else separates the pet from its desktop.
 Figure and ground are told apart by hue, by colour, or by lightness, and
@@ -169,8 +185,9 @@ across the screen is your hand.
 
 ```json
 {
-  "name": "Gritty",
-  "spritesheetPath": "gritty-faces.webp",
+  "id": "example-faces",
+  "displayName": "Example Faces",
+  "spritesheetPath": "example-faces.webp",
   "rows": 3, "columns": 3, "size": 150,
   "faces": {
     "idle":    [0, 0], "error":   [0, 1], "tired":   [0, 2],
@@ -188,7 +205,8 @@ then `success`, then `idle` if you did not draw one.
 
 A still pet ignores `followFocus` and `roam` whatever the person's
 settings say, because both of them are the creature moving on its own.
-Expressions dissolve into one another rather than snapping.
+Expressions switch as crisp authored poses. Keep their scale and grounding
+consistent so the change reads as expression rather than movement.
 
 Resting is not the same as being frozen. Every so often the creature
 looks up wearing another of its faces for a few seconds and then settles
@@ -199,40 +217,17 @@ Draw those faces and you get it for free; draw only `idle` and the
 creature simply rests, which is also fine. The person can switch it off
 from the bar popout.
 
-### A screen to show things on
-
-```json
-"display": { "x": 0.5146, "y": 0.4615, "w": 0.2233, "h": 0.2212, "slope": -0.5 }
-```
-
-A pet with a panel on it — a screen, a gauge, a window — can be asked to
-show something there. `x`, `y`, `w` and `h` are fractions of the cell, so
-they hold at any size, and `slope` is the rise of the panel's top edge in
-the drawing: `0` for a flat one, `-0.5` for the two-to-one isometric that
-most pixel-art cubes are drawn in. The rectangle is sheared by it, and
-what is drawn inside is sheared with it, which is what makes the digits
-sit on the panel rather than float in front of it.
-
-Measure it from the artwork with a grid: the anchor is the panel's
-top-left corner, and the width and height are its unsheared extent. Keep
-it inside the panel's frame — a screen that overlaps its own bezel looks
-like a sticker.
-
-Omit it and the pet simply has nothing to show things on; the timer then
-lives in the bar and the speech bubble instead.
-
 ### Where the drawing sits in its cell
 
 ```json
-"content": { "left": 0.0534, "right": 0.8495, "top": 0.0433, "bottom": 0.7981 }
+"content": { "left": 0.08, "right": 0.88, "top": 0.05, "bottom": 0.82 }
 ```
 
-A cell is rarely filled to its edges. Gritty's resting picture stops
-thirty pixels short of its own right edge and forty short of the bottom,
-which is fine until something has to be measured against the creature
-rather than against the cell — putting it away at an edge, where what
-should stay showing is a peek of the pet and not a strip of transparency.
-Say where the drawing is and those measurements land on it.
+A cell is rarely filled to its edges. That is fine until something has to be
+measured against the creature rather than the cell — putting it away at an
+edge, for example, where what should stay showing is a peek of the drawing and
+not a strip of transparency. Declare the visible bounds and those measurements
+land on the pet itself.
 
 Take it from the resting cell, as fractions of the cell's width and
 height. Leave it out and the cell is assumed to be full, which is what
@@ -252,8 +247,7 @@ It is the cheapest sign of life a still drawing can have, and the only
 one that never stops — except while it is being carried, while it is
 already wearing an expression, and while it sleeps.
 
-A blink does not dissolve. Every other change of face fades across a
-quarter of a second; a blink you can watch fade is not a blink.
+The blink uses the same crisp pose change as every other expression.
 
 **What this asks of the artwork:** the same drawing, from the same
 distance, in the same colours — only the eyes change. Anything else and
@@ -266,7 +260,7 @@ resting face before building the sheet.
 `tools/build-faces.py` assembles the sheet from a grid of renders:
 
 ```bash
-tools/build-faces.py pets/gritty/gritty-faces.webp renders.png 6 2 \
+tools/build-faces.py example-faces.webp renders.png 6 2 \
   idle,error,tired,working,blush,success,waiting,sleeping,love,blink,tongue,spare
 ```
 
@@ -296,32 +290,26 @@ face stays pointed inwards and the cable runs off the nearer edge.
 
 Say `mirror: true` only if the drawing can take it. A front view gains
 nothing by being flipped, and anything with writing on it — a number
-plate, a sponsor's name — reads backwards the moment you do. The rally
-car that ships with this plugin says `false` for exactly that reason.
+plate or a name — reads backwards the moment you do.
 
 ## A pet may be one picture
 
 Nothing says a sheet needs more than one cell. `rows: 1`, `columns: 1`
 and `faces: { "idle": [0, 0] }` is a complete pet: it rests, it wears
 your theme if it has a hue window, it can be dragged, and that is all.
-Two of the three that ship here are built that way.
-
-```bash
-tools/build-faces.py pets/quattro/quattro.webp render.png 1 1 idle
-```
+`quattro`, bundled with Omarchief, is built that way.
 
 ## Building an animated sheet
 
-`tools/build-atlas.py` does all of the above. The renders it reads from
-`tools/source/` are not in the clone — they are attached to each release,
-and [tools/source/README.md](../tools/source/README.md) has the one command
-that puts them back:
+`tools/build-atlas.py` does all of the above. Supply your own aligned renders;
+the paths below are examples and are not part of Omarchief's artwork-source
+archive:
 
 ```bash
-tools/build-atlas.py pets/gritty/gritty-v10.webp \
-  --walk tools/source/gritty-walk.png 6 \
-  --idle tools/source/gritty-idle.png \
-  --activities tools/source/gritty-activities.png 6 6 \
+tools/build-atlas.py example-animated.webp \
+  --walk renders/walk.png 6 \
+  --idle renders/idle.png \
+  --activities renders/activities.png 6 6 \
       balloon,lunch,treasure,painting,cat,garden \
   --poses working=2:4,success=2:5,error=3:2,waiting=0:3,sleep=4:5
 ```
@@ -331,4 +319,6 @@ times. `--poses` lifts single cells out of the activity sheet to fill the
 standard rows: `working=2:4` means row 2, column 4 of that sheet becomes
 the working pose.
 
-It needs ImageMagick, which Omarchy already installs.
+Both builders need Python 3 and ImageMagick, which Omarchy already installs;
+`build-faces.py` additionally needs NumPy. The complete development dependency
+list is in the root README.

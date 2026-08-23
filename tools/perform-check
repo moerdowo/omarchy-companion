@@ -13,9 +13,9 @@ if [[ ${1:-} == -h || ${1:-} == --help ]]; then
   cat <<USAGE
 Usage: tools/perform-check [rounds]
 
-Ask the installed plugin, through its status file, whether its
-performances run their full length every time — not just the first.
-Defaults to two rounds. A still pet has none, and says so.
+Ask the installed plugin, through its status file, whether performances
+finish within 40 seconds and, unless a walk interrupts them, remain visible
+for at least eight seconds. Defaults to two rounds. A still pet has none.
 USAGE
   exit 0
 fi
@@ -28,7 +28,10 @@ python3 - "$rounds" <<'PY'
 import json, os, subprocess, sys, time
 
 rounds = int(sys.argv[1])
-status = os.path.expanduser("~/.local/state/omarchy/omarchief/status.json")
+if not 1 <= rounds <= 20:
+    raise SystemExit("perform-check: rounds must be between 1 and 20")
+state_home = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+status = os.path.join(state_home, "omarchy", "omarchief", "status.json")
 
 def read():
     try:
@@ -37,8 +40,12 @@ def read():
         return {}
 
 def ipc(*args):
-    return subprocess.run(["omarchy-shell", "omarchief", *args],
-                          capture_output=True, text=True).stdout.strip()
+    result = subprocess.run(["omarchy-shell", "omarchief", *args],
+                            capture_output=True, text=True)
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+        raise SystemExit(f"perform-check: IPC failed: {detail}")
+    return result.stdout.strip()
 
 # The pet's performances are named in the refusal you get for asking after
 # one that cannot exist.
@@ -48,7 +55,7 @@ if not names:
     print("perform-check: this pet has no performances to check"); sys.exit(0)
 
 bad = 0
-print(f"  {'performance':14} {'ran for':>8}  passes")
+print(f"  {'performance':14} {'ran for':>8}  plan")
 for rnd in range(rounds):
     for name in names:
         for _ in range(240):
@@ -59,15 +66,21 @@ for rnd in range(rounds):
         t0 = time.time()
         while read().get("activity") != name and time.time() - t0 < 3: time.sleep(0.05)
         began = read()
+        if began.get("activity") != name:
+            print(f"  {name:14} {'—':>8}  never appeared in status")
+            bad += 1
+            continue
         passes = began.get("activityPasses", 0)
         where = began.get("monitor")
         start = time.time()
         moved = False
-        while True:
+        finished = False
+        while time.time() - start <= 40:
             now = read()
-            if now.get("activity") != name: break
+            if now.get("activity") != name:
+                finished = True
+                break
             if now.get("monitor") != where: moved = True
-            if time.time() - start > 40: break
             time.sleep(0.05)
         ran = time.time() - start
         # A performance is meant to last long enough to be noticed. Short
@@ -78,9 +91,10 @@ for rnd in range(rounds):
         if ran < 8 and moved:
             print(f"  {name:14} {ran:7.1f}s  x{passes}  interrupted by a walk")
             continue
-        ok = ran >= 8 and passes >= 1
+        ok = finished and ran >= 8
         if not ok: bad += 1
-        print(f"  {name:14} {ran:7.1f}s  x{passes}  {'ok' if ok else 'TOO SHORT'}")
+        verdict = "ok" if ok else ("TIMEOUT" if not finished else "TOO SHORT")
+        print(f"  {name:14} {ran:7.1f}s  x{passes}  {verdict}")
         time.sleep(0.5)
 
 print("perform-check: ok" if bad == 0 else f"perform-check: {bad} performance(s) cut short")

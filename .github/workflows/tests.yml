@@ -2,13 +2,61 @@ name: tests
 on:
   push: { branches: [main, master] }
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   model:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: "22" }
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with: { python-version: "3.14.7" }
+      - name: install pinned NumPy
+        env:
+          NUMPY_VERSION: 2.5.2
+          NUMPY_SHA256: 318b9a4c845dbea06708a29c84ee429cc3065048db34cdb799047643492050ee
+          NUMPY_URL: https://files.pythonhosted.org/packages/c7/99/461bd36dbdfac6c1c53efa370bd55a83227542d0d118f1677dbf1a3dacd5/numpy-2.5.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        run: |
+          set -euo pipefail
+          numpy_wheel="$RUNNER_TEMP/numpy-2.5.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+          curl --fail --location --retry 3 --silent --show-error \
+            --output "$numpy_wheel" "$NUMPY_URL"
+          printf '%s  %s\n' "$NUMPY_SHA256" "$numpy_wheel" | sha256sum --check -
+          python -m pip install --disable-pip-version-check --no-deps "$numpy_wheel"
+          python -c 'import numpy; assert numpy.__version__ == "2.5.2"'
+      - name: install pinned ImageMagick 7
+        env:
+          IMAGEMAGICK_VERSION: 7.1.2-24
+          IMAGEMAGICK_SHA256: 70598022a356356c8a118a31bfff5c09585ae2c9cbc188da7365b23ca471f019
+        run: |
+          set -euo pipefail
+          imagemagick_root="$RUNNER_TEMP/imagemagick"
+          imagemagick_appimage="$imagemagick_root/ImageMagick.AppImage"
+          imagemagick_bin="$imagemagick_root/bin"
+          mkdir -p "$imagemagick_root" "$imagemagick_bin"
+          curl --fail --location --retry 3 --silent --show-error \
+            --output "$imagemagick_appimage" \
+            "https://github.com/ImageMagick/ImageMagick/releases/download/${IMAGEMAGICK_VERSION}/ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage"
+          printf '%s  %s\n' "$IMAGEMAGICK_SHA256" "$imagemagick_appimage" | sha256sum --check -
+          chmod 0755 "$imagemagick_appimage"
+          (
+            cd "$imagemagick_root"
+            "$imagemagick_appimage" --appimage-extract > /dev/null
+          )
+          ln -s "$imagemagick_root/squashfs-root/AppRun" "$imagemagick_bin/magick"
+          "$imagemagick_bin/magick" -version | grep -F "Version: ImageMagick 7."
+          echo "$imagemagick_bin" >> "$GITHUB_PATH"
       - run: node --test tests/*.test.mjs
       # The cold-start check needs a Wayland session and the Omarchy shell,
       # so it belongs on a desktop rather than in CI: tools/coldstart-check
@@ -21,8 +69,11 @@ jobs:
     # symlinks anywhere. Cheap to run, and the failure it prevents is a
     # plugin that installs and then does nothing.
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: manifest.json is valid and complete
         run: |
           set -euo pipefail
@@ -47,13 +98,53 @@ jobs:
           done
           jq -e '[.kinds[]] | inside(["panel","bar-widget","overlay","menu","service","bar"])' \
             manifest.json > /dev/null
+          jq -e '((.kinds | index("service")) == null) or ((.entryPoints.service | type) == "string")' \
+            manifest.json > /dev/null
+          jq -e '((.kinds | index("bar-widget")) == null) or ((.entryPoints.barWidget | type) == "string")' \
+            manifest.json > /dev/null
       - name: no symlinks
         run: |
           found=$(find . -path ./.git -prune -o -type l -print)
           [[ -z $found ]] || { echo "symlinks are not allowed: $found" >&2; exit 1; }
-      - name: the pictures the listing needs
+      - name: release metadata and current visuals exist
         run: |
           set -euo pipefail
-          for f in README.md LICENSE preview.png screenshot.png; do
+          for f in README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md \
+                   preview.png docs/settings.png tools/source/NOTICE; do
             [[ -s $f ]] || { echo "missing or empty: $f" >&2; exit 1; }
           done
+          version=$(jq -r .version manifest.json)
+          version_pattern=${version//./\\.}
+          grep -Eq "^## ${version_pattern} — [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md \
+            || { echo "CHANGELOG.md has no dated entry for $version" >&2; exit 1; }
+          ! grep -Eiq "^## ${version_pattern} — unreleased$" CHANGELOG.md \
+            || { echo "CHANGELOG.md still marks $version unreleased" >&2; exit 1; }
+          grep -Fqx 'omarchy plugin add https://github.com/daventhedude/omarchief.git --enable' README.md
+          grep -Fqx 'omarchy plugin remove io.github.daventhedude.omarchief' README.md
+          ! grep -Eq 'omarchy plugin (add|remove).*--yes' README.md \
+            || { echo "README.md bypasses Omarchy's install/remove confirmation" >&2; exit 1; }
+      - name: release payload is clean
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -E '(^|/)(__pycache__/|.*\.py[co]$|pets/gritty-front/|tools/omarchief-hooks?$|tools/source/.*\.png$|omarchief-artwork-sources\.tar\.gz$)' || true)
+          [[ -z $bad ]] || { echo "files excluded from the release are tracked:" >&2; echo "$bad" >&2; exit 1; }
+          for pet in pets/*/pet.json; do
+            jq -e '(.spritesheetPath | type) == "string"
+              and (.rows | type) == "number" and .rows >= 1
+              and (.columns == null or ((.columns | type) == "number" and .columns >= 1))' "$pet" > /dev/null
+            sheet="$(dirname "$pet")/$(jq -r .spritesheetPath "$pet")"
+            [[ -s $sheet ]] || { echo "missing spritesheet named by $pet: $sheet" >&2; exit 1; }
+          done
+      - name: maintenance scripts parse
+        run: |
+          set -euo pipefail
+          [[ -x tools/build-source-archive ]] \
+            || { echo "tools/build-source-archive is not executable" >&2; exit 1; }
+          bash -n tools/coldstart-check tools/perform-check tools/omarchief-recolor \
+            tools/build-source-archive
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          for path in Path("tools").glob("*.py"):
+              ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+          PY

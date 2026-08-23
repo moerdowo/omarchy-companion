@@ -3,15 +3,16 @@
 The renders the shipped spritesheets are built from, so the sheets can be
 rebuilt, corrected, or drawn over by somebody who is not me.
 
-**They are not in this clone.** Nothing loads them at runtime, and they are
-twelve megabytes against the plugin's own three hundred kilobytes: every
-installation would carry them forever to run a creature that never opens
-them. They are attached to each release instead, as
-`omarchief-artwork-sources.tar.gz` — download it into this folder and every
-command below works as written:
+**They are not in this clone.** Nothing loads them at runtime, so carrying
+them in every installation would add weight without changing the creature
+on screen. They are attached to each release instead, as
+`omarchief-artwork-sources.tar.gz`. The archive includes its own licence and
+provenance notice; download it at the version in `manifest.json` and extract it
+at the repository root:
 
 ```bash
-gh release download --repo daventhedude/omarchief \
+version=$(jq -r .version manifest.json)
+gh release download "v$version" --repo daventhedude/omarchief \
   --pattern 'omarchief-artwork-sources.tar.gz' --output - | tar xz
 ```
 
@@ -23,22 +24,44 @@ The table is what is in that archive.
 | `gritty-blink.png` | the resting face with its eyes closed | one render, fitted to the resting face |
 | `gritty-tongue.png` | the tongue-out expression | one render, fitted the same way |
 | `gritty-faces12.png` | `pets/gritty/gritty-faces.webp` | the twelve cells above, montaged 6×2 |
-| `gritty-front.png` | `pets/gritty-front/` | one render, head on |
-| `quattro.png` | `pets/quattro/` | cut from an Omarchy wallpaper — see that folder's NOTICE |
-| `gritty-idle.png`, `gritty-walk.png`, `gritty-activities.png` | an animated atlas | rows of frames, for `build-atlas.py` |
+| `quattro.png` | `pets/quattro/quattro.webp` | high-resolution cutout of the approved Omarchy-derived still; see `NOTICE` |
+| `NOTICE` | the source archive itself | copyright, licence, provenance, and marks notice; always included |
+
+Build the release archive with the repository helper. It carries an explicit
+member list, normalizes tar ownership, permissions, ordering, and timestamps,
+and removes gzip's filename and time fields. This keeps retired studies and
+local renders out, makes the notice impossible to forget, and produces the
+same bytes from the same audited inputs and release commit:
+
+```bash
+asset="${TMPDIR:-/tmp}/omarchief-artwork-sources.tar.gz"
+tools/build-source-archive "$asset"
+tools/build-source-archive --check "$asset"
+tar -tzf "$asset"
+```
+
+The builder uses the release commit time unless `SOURCE_DATE_EPOCH` is set
+explicitly, and prints the archive's SHA-256. Record that checksum in the
+release notes and attach the archive to the matching `v<manifest version>`
+release. Neither the high-resolution PNG inputs nor the resulting tarball may
+appear in `git ls-files`; every plugin installation should contain only the
+optimized runtime spritesheets.
 
 The face sheet is assembled with:
 
 ```bash
 tools/build-faces.py pets/gritty/gritty-faces.webp tools/source/gritty-faces12.png 6 2 \
   idle,error,tired,working,blush,success,waiting,sleeping,love,blink,tongue,spare \
-  --height 208
+  --height 208 \
+  --borrow-body idle:blink,tongue --panel 116,108,68,68,-0.5
 ```
 
-A render that came from a different sitting than the rest — the blink and
-the tongue did — has to be matched to the resting face first, in size and
-in colour, or the creature appears to flinch when it wears it. See
-[docs/pets.md](../../docs/pets.md).
+This produces twelve 242 × 208 cells. The body finder gives every drawing its
+own cell and drops disconnected antialiasing dust instead of carrying a piece
+of its neighbour across the grid. The last two options make the blink and
+tongue deterministic even though their renders came from a different sitting:
+both keep the aligned `idle` body and borrow only their 68 × 68 face panel.
+See [docs/pets.md](../../docs/pets.md).
 
 ## The blink and the tongue borrow the body
 
@@ -47,9 +70,31 @@ the same object are never quite the same object: the outline differed by a
 pixel here and there across the whole cube, which the eye reads as a flinch
 at an eighth of a second.
 
-So the shipped sheet does not use their bodies at all. After
-`build-faces.py` has aligned every cell, the blink and tongue cells are
-rebuilt as the resting cell with only the face panel taken from theirs — a
-parallelogram at (100, 90), 56 by 56, sloped -0.5, softened two pixels at
-its edge. The silhouette is then identical by construction, and the only
-thing that changes when the creature blinks is its face.
+So the shipped sheet does not use their bodies at all. `--borrow-body` rebuilds
+the blink and tongue cells from the resting cell, then takes only the sheared
+panel declared by `--panel 116,108,68,68,-0.5` from each target. The edge is
+feathered by the builder; the silhouette stays identical by construction and
+only the expression changes.
+
+## Quattro's release cell
+
+Quattro has one still cell rather than a content-aware builder. The fixed crop
+below turns the archived high-resolution cutout into a 333 × 208 lossless
+release candidate with the drawing seated at the same +5,+5 bounds as the
+shipped sheet:
+
+```bash
+magick tools/source/quattro.png -filter Lanczos -resize 335x \
+  -crop 333x208+3+22 +repage -background none -gravity northwest \
+  -extent 333x208 -flop -define webp:lossless=true pets/quattro/quattro.webp
+magick pets/quattro/quattro.webp -alpha extract -threshold 1 -trim \
+  -format '%wx%h%O\n' info:
+```
+
+The final `-flop` makes the release cell face right; `mirror: true` turns it
+left when it stands on the right half of a screen, so the car always points
+inward. The geometry check must print `323x198+5+5`. ImageMagick's resampler
+can change individual pixels between versions, so a source change still
+requires the normal-scale alpha, decal-legibility, and light/dark-theme review in
+[docs/development.md](../../docs/development.md); matching dimensions alone do
+not approve an image.

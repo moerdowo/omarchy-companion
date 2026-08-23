@@ -2,3 +2,7 @@
 # The artwork renders ship as a release asset, not in the clone.
 # See tools/source/README.md
 tools/source/*.png
+
+# Local build artefacts never belong in the plugin payload.
+__pycache__/
+*.py[cod]

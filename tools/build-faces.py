@@ -15,8 +15,11 @@ left edge and footing rather than to the grid it was drawn on.
 
 Usage:
   tools/build-faces.py out.webp source.png COLS ROWS name,name,... [--height N]
+    [--borrow-body BASE:TARGET,TARGET --panel X,Y,W,H,SLOPE]
 """
+import argparse
 import json
+import math
 import subprocess
 import sys
 import tempfile
@@ -26,6 +29,14 @@ ALPHA_ON = 32          # what counts as drawn rather than empty
 ERODE = 10             # enough to detach a sparkle, not enough to eat the body
 MARGIN = 8             # breathing room around the widest cell, in *output* pixels
 SLIDE = 8              # how far a body may be nudged to line up with the first
+# Generative renders carry a few detached antialiasing crumbs at cell edges.
+# Scale the cutoff with the drawing instead of baking a source resolution in.
+DUST_RATIO = 0.003
+PANEL_FEATHER = 1.5
+# Lanczos can spread a discarded neighbour into a detached one-pixel ghost
+# with alpha 1–3/255. It is not useful antialiasing and becomes a visible
+# speck when a cell is isolated, so only that near-zero tail is clipped.
+ALPHA_FLOOR = "3%"
 
 
 def run(*args):
@@ -88,9 +99,9 @@ def share_out(mask, cores, tile_of=None):
     # is the cell of the sheet it lies in: asking which body centre is
     # nearest instead hands a sparkle that sits low in its own cell to the
     # creature in the row below, whose middle happens to be closer.
-    import numpy as np
     stray = mask & (owner < 0)
     centres = [np.argwhere(core & mask).mean(axis=0) for core in cores]
+    detail_floor = max(4, round(float(np.median([core.sum() for core in cores])) * DUST_RATIO))
     while stray.any():
         ys, xs = np.where(stray)
         blob = np.zeros_like(stray)
@@ -105,6 +116,13 @@ def share_out(mask, cores, tile_of=None):
             if bigger.sum() == blob.sum():
                 break
             blob = bigger
+        # Tiny isolated particles are neither body nor decoration. Keeping
+        # them is worse than harmless: once cells are aligned, a crumb from
+        # the next row appears beneath the current creature. Real detached
+        # marks (question mark, heart, sparkles) are comfortably larger.
+        if int(blob.sum()) < detail_floor:
+            stray &= ~blob
+            continue
         here = np.argwhere(blob).mean(axis=0)
         home = tile_of(here) if tile_of is not None else None
         if home is None:
@@ -146,17 +164,92 @@ def bodies(mask, cols, rows):
     return ordered
 
 
-def main(argv):
+def positive_int(value):
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
+
+
+def parse_cli(argv):
+    parser = argparse.ArgumentParser(
+        prog="build-faces.py",
+        description="Build one aligned sheet of named pet faces.",
+        allow_abbrev=False,
+    )
+    parser.add_argument("out", type=Path, metavar="OUT.webp")
+    parser.add_argument("source", type=Path, metavar="SOURCE.png")
+    parser.add_argument("cols", type=positive_int, metavar="COLS")
+    parser.add_argument("rows", type=positive_int, metavar="ROWS")
+    parser.add_argument("names_text", metavar="NAME,NAME,...")
+    parser.add_argument("--height", type=positive_int, default=208, metavar="N")
+    parser.add_argument("--borrow-body", metavar="BASE:TARGET,TARGET")
+    parser.add_argument("--panel", metavar="X,Y,W,H,SLOPE")
+
+    for flag in ("--height", "--borrow-body", "--panel"):
+        uses = sum(token == flag or token.startswith(flag + "=") for token in argv)
+        if uses > 1:
+            parser.error(f"{flag} may only be specified once")
+
+    args = parser.parse_args(argv)
+    args.names = [name.strip() for name in args.names_text.split(",")]
+    if len(args.names) != args.cols * args.rows:
+        parser.error(f"{len(args.names)} names for {args.cols * args.rows} cells")
+    if any(not name for name in args.names):
+        parser.error("face names may not be empty")
+    seen = set()
+    repeated = []
+    for name in args.names:
+        if name in seen and name not in repeated:
+            repeated.append(name)
+        seen.add(name)
+    if repeated:
+        parser.error("face names may not repeat: " + ", ".join(repeated))
+
+    borrow = None
+    panel = None
+    if args.borrow_body is not None:
+        spec = args.borrow_body
+        base, separator, target_text = spec.partition(":")
+        targets = [name.strip() for name in target_text.split(",") if name.strip()]
+        if not separator or not base.strip() or not targets:
+            parser.error("--borrow-body needs BASE:TARGET,TARGET")
+        borrow = (base.strip(), targets)
+    if args.panel is not None:
+        values = args.panel.split(",")
+        if len(values) != 5:
+            parser.error("--panel needs X,Y,W,H,SLOPE")
+        try:
+            panel = tuple(float(value) for value in values)
+        except ValueError:
+            parser.error("--panel values must be numbers")
+        if not all(math.isfinite(value) for value in panel):
+            parser.error("--panel values must be finite numbers")
+        if panel[2] <= 0 or panel[3] <= 0:
+            parser.error("--panel width and height must be positive")
+    if (borrow is None) != (panel is None):
+        parser.error("--borrow-body and --panel must be used together")
+    if borrow is not None:
+        base, targets = borrow
+        missing = [name for name in [base, *targets] if name not in args.names]
+        if missing:
+            parser.error("unknown borrowed face: " + ", ".join(missing))
+        if base in targets:
+            parser.error("a face cannot borrow its own body")
+    args.borrow = borrow
+    args.panel_values = panel
+    return args
+
+
+def main(argv=None):
+    args = parse_cli(sys.argv[1:] if argv is None else argv)
     import numpy as np
-    if len(argv) < 5:
-        raise SystemExit(__doc__)
-    out, source, cols, rows = argv[0], argv[1], int(argv[2]), int(argv[3])
-    names = [n.strip() for n in argv[4].split(",")]
-    height = 208
-    if "--height" in argv:
-        height = int(argv[argv.index("--height") + 1])
-    if len(names) != cols * rows:
-        raise SystemExit(f"build-faces: {len(names)} names for {cols * rows} cells")
+    out, source = args.out, args.source
+    cols, rows, names, height = args.cols, args.rows, args.names, args.height
+    borrow, panel = args.borrow, args.panel_values
 
     img, W, H = load_rgba(source)
     mask = img[:, :, 3] > ALPHA_ON
@@ -271,8 +364,43 @@ def main(argv):
                 tile = Path(d) / f"{r}-{c}.png"
                 cut.tofile(raw)
                 run("magick", "-size", f"{cell_w}x{cell_h}", "-depth", "8", f"rgba:{raw}",
-                    "-filter", "Lanczos", "-resize", f"{out_w}x{out_h}!", str(tile))
+                    "-filter", "Lanczos", "-resize", f"{out_w}x{out_h}!",
+                    "(", "+clone", "-alpha", "extract", "-black-threshold", ALPHA_FLOOR, ")",
+                    "-alpha", "off", "-compose", "CopyOpacity", "-composite", str(tile))
                 tiles.append(str(tile))
+
+        # Renders made in another sitting can carry the right expression on
+        # a subtly different body. Alignment cannot fix a new silhouette or
+        # changed paint. In that case keep the base cell byte-for-byte and
+        # borrow only the declared face panel from each target. The panel is
+        # a sheared rectangle in final-cell pixels, matching pet.json's
+        # display geometry: a negative slope lifts its right edge.
+        if borrow is not None:
+            base, targets = borrow
+            x, y, width, panel_height, slope = panel
+            points = [(x, y), (x + width, y + slope * width),
+                      (x + width, y + slope * width + panel_height),
+                      (x, y + panel_height)]
+            if (min(px for px, _ in points) < 0 or max(px for px, _ in points) > out_w
+                    or min(py for _, py in points) < 0 or max(py for _, py in points) > out_h):
+                raise SystemExit("build-faces: panel falls outside the output cell")
+            mask_path = Path(d) / "borrow-panel.png"
+            polygon = " ".join(f"{px:g},{py:g}" for px, py in points)
+            run("magick", "-size", f"{out_w}x{out_h}", "xc:black",
+                "-fill", "white", "-stroke", "none", "-draw", f"polygon {polygon}",
+                "-blur", f"0x{PANEL_FEATHER:g}", str(mask_path))
+            base_tile = Path(tiles[names.index(base)])
+            for target in targets:
+                index = names.index(target)
+                target_tile = Path(tiles[index])
+                masked = Path(d) / f"borrowed-panel-{index}.png"
+                patched = Path(d) / f"borrowed-{index}.png"
+                run("magick", str(target_tile), str(mask_path), "-alpha", "off",
+                    "-compose", "CopyOpacity", "-composite", str(masked))
+                run("magick", str(base_tile), str(masked), "-compose", "over",
+                    "-composite", str(patched))
+                tiles[index] = str(patched)
+
         run("magick", "montage", *tiles, "-tile", f"{cols}x{rows}",
             "-geometry", "+0+0", "-background", "none", "-define", "webp:lossless=true", out)
 
@@ -288,4 +416,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()

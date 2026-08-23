@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
-# Prove the plugin loads from cold, without restarting anybody's desktop.
-#
-# Everything else is tested inside a shell process that has already loaded
-# this plugin dozens of times, which says nothing about how it behaves on a
-# machine that starts it for the first time. This launches a second
-# Quickshell — one that has compiled nothing — points it at the plugin with
-# its windows suppressed, and asks the panel what it managed to read.
-#
-# Usage: tools/coldstart-check [plugin-dir]
+# Load the shipped manifest, service, widget and bundled pet in a clean user
+# environment. A developer's installed pet must never be able to make this
+# test pass.
+
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then
-  cat <<USAGE
+  cat <<'USAGE'
 Usage: tools/coldstart-check [plugin-folder]
 
-Load the plugin's QML in a fresh Quickshell and report anything it warns
-about. Defaults to the folder this tool lives in. Exits non-zero when the
-plugin's own QML complains, which is what a release is checked with.
+Install the plugin into a temporary HOME/XDG environment, enable its real bar
+entry, and load it in a fresh Quickshell process. Exits non-zero unless the
+service, bar widget, and bundled Gritty spritesheet all load without warnings.
 USAGE
   exit 0
 fi
@@ -22,92 +17,451 @@ fi
 set -euo pipefail
 
 plugin=${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+plugin=$(cd "$plugin" && pwd)
 shell_src=${OMARCHY_PATH:-/usr/share/omarchy}/shell
+
+[[ -f $plugin/manifest.json ]] || { echo "coldstart-check: missing manifest.json" >&2; exit 1; }
 [[ -d $shell_src ]] || { echo "coldstart-check: no Omarchy shell at $shell_src" >&2; exit 1; }
 command -v quickshell >/dev/null || { echo "coldstart-check: quickshell is required" >&2; exit 1; }
+command -v jq >/dev/null || { echo "coldstart-check: jq is required" >&2; exit 1; }
 
+plugin_id=$(jq -er '.id | select(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))' "$plugin/manifest.json")
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf -- "$work"' EXIT
 
-# The imports resolve against the config root, so the probe has to sit
-# beside the shell's own Commons and Ui.
-cp -r "$shell_src" "$work/shell"
-# The probe reads the plugin's own logic to report what a performance would
-# do, so it needs the file beside it rather than behind an absolute import.
-cp "$plugin/keystone/Model.js" "$work/shell/Model.js"
+test_home=$work/home
+test_config=$test_home/.config
+test_state=$work/state
+test_cache=$work/cache
+test_data=$work/data
+install_dir=$test_config/omarchy/plugins/$plugin_id
+
+mkdir -p "$install_dir" "$test_state" "$test_cache" "$test_data"
+
+# Copy the working tree, including intentional untracked QML under review, but
+# not Git internals, ignored source renders, or local bytecode.
+tar -C "$plugin" \
+  --exclude='./.git' \
+  --exclude='./tools/source/*.png' \
+  --exclude='*/__pycache__' \
+  --exclude='*.pyc' \
+  -cf - . | tar -C "$install_dir" -xf -
+
+mkdir -p "$test_config/omarchy"
+cat > "$test_config/omarchy/shell.json" <<JSON
+{
+  "version": 1,
+  "bar": {
+    "position": "top",
+    "transparent": false,
+    "layout": {
+      "left": [],
+      "center": [],
+      "right": [{ "id": "$plugin_id" }]
+    }
+  },
+  "plugins": []
+}
+JSON
+
+# A unique config path avoids colliding with the user's running shell while
+# retaining Omarchy's real imports and plugin registry implementation.
+cp -a "$shell_src" "$work/shell"
+
 cat > "$work/shell/coldstart.qml" <<QML
-import Quickshell
 import QtQuick
-import "Model.js" as Model
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import "services"
 
 ShellRoot {
-  Loader {
-    id: panel
-    source: "file://$plugin/keystone/ChiefPanel.qml"
-    onLoaded: { item.shown = false; report.start() }
-    onStatusChanged: if (status === Loader.Error) { console.log("COLDSTART: panel failed to compile"); giveUp.start() }
-  }
-  Loader {
-    source: "file://$plugin/keystone/BarWidget.qml"
-    onStatusChanged: if (status === Loader.Error) console.log("COLDSTART: bar widget failed to compile")
-  }
-  // Qt.quit() is ignored while the configuration is still loading, so a
-  // compile failure would otherwise sit until the outer timeout.
-  Timer { id: giveUp; interval: 250; onTriggered: Qt.quit() }
-  Timer { interval: 45000; running: true; onTriggered: { console.log("COLDSTART: timed out"); Qt.quit() } }
+  id: root
 
-  // Give the freshly started panel a moment to read everything it depends on
-  // — the pet, the theme, Hyprland's gaps — then say what it found.
+  property bool configReady: false
+  property var isolatedConfig: ({})
+  property var pluginManifest: null
+  property bool failed: false
+  property int phase: 0
+
+  function fail(message) {
+    if (failed) return
+    failed = true
+    console.log("COLDSTART failure:", message)
+    quitSoon.restart()
+  }
+
+  function mountFromRegistry() {
+    if (!configReady) return
+    var manifest = registry.installedPlugins["$plugin_id"]
+    if (!manifest) { fail("manifest was not discovered"); return }
+    if (!registry.isEnabled("$plugin_id")) { fail("shell.json did not enable the plugin"); return }
+    if (!manifest.entryPoints || !manifest.entryPoints.service || !manifest.entryPoints.barWidget) {
+      fail("manifest does not expose service and barWidget entry points")
+      return
+    }
+    pluginManifest = manifest
+    serviceLoader.source = registry.entryPointUrl(manifest, "service")
+    widgetLoader.source = registry.entryPointUrl(manifest, "barWidget")
+  }
+
+  FileView {
+    path: "$test_config/omarchy/shell.json"
+    printErrors: false
+    onLoaded: {
+      try {
+        root.isolatedConfig = JSON.parse(String(text() || ""))
+        root.configReady = root.isolatedConfig.version === 1
+      } catch (error) {
+        root.fail("isolated shell.json did not parse: " + error)
+        return
+      }
+      if (!root.configReady) { root.fail("isolated shell.json has no version 1"); return }
+      registry.rescan()
+    }
+    onLoadFailed: function(error) { root.fail("isolated shell.json did not load: " + error) }
+  }
+
+  PluginRegistry {
+    id: registry
+    firstPartyDir: ""
+    shellConfigProvider: function() { return root.isolatedConfig }
+    shellConfigMutator: function(mutate) {
+      var next = JSON.parse(JSON.stringify(root.isolatedConfig))
+      mutate(next)
+      root.isolatedConfig = next
+    }
+    onScanFinished: root.mountFromRegistry()
+  }
+
+  QtObject {
+    id: shellStub
+    readonly property var shellConfig: root.isolatedConfig
+    function serviceFor(id) { return id === "$plugin_id" ? serviceLoader.item : null }
+    function persistShellConfig(next) { root.isolatedConfig = next }
+    function updateEntryInline(id, settings) { return false }
+  }
+
+  QtObject {
+    id: barStub
+    property var shell: shellStub
+    property bool vertical: false
+    property int barSize: 32
+    property color foreground: Color.foreground
+    property color barForeground: Color.foreground
+    property color urgent: Color.urgent
+    property string fontFamily: Style.font.family
+    property string position: "top"
+    property bool foregroundAnimationEnabled: false
+    function run(command) {}
+    function requestPopout(widget) {}
+    function moduleWidgets(id) { return widgetLoader.item ? [widgetLoader.item] : [] }
+  }
+
+  Loader {
+    id: serviceLoader
+    active: source !== ""
+    onLoaded: {
+      // Mirror shell.qml's service injection contract. A plugin declaring one
+      // of these names read-only can compile perfectly and still fail only
+      // when the real shell assigns it during activation.
+      if ("omarchyPath" in item) item.omarchyPath = "${OMARCHY_PATH:-/usr/share/omarchy}"
+      if ("manifest" in item) item.manifest = root.pluginManifest
+      if ("shell" in item) item.shell = shellStub
+      if ("shown" in item) item.shown = false
+    }
+    onStatusChanged: if (status === Loader.Error) root.fail("service failed to compile")
+  }
+
+  Loader {
+    id: widgetLoader
+    active: source !== ""
+    visible: false
+    onLoaded: {
+      if ("bar" in item) item.bar = barStub
+      if ("moduleName" in item) item.moduleName = "$plugin_id"
+      if ("settings" in item) item.settings = ({ id: "$plugin_id" })
+    }
+    onStatusChanged: if (status === Loader.Error) root.fail("bar widget failed to compile")
+  }
+
+  Image {
+    id: bundledSprite
+    visible: false
+    source: serviceLoader.item && "spriteBaseSource" in serviceLoader.item
+      ? serviceLoader.item.spriteBaseSource : ""
+  }
+
   Timer {
-    id: report
-    interval: 6000
+    interval: 100
+    running: true
+    repeat: true
     onTriggered: {
-      var p = panel.item
-      console.log("COLDSTART body:", p.spriteOk ? "sprite" : "blob",
-                  "rows:", p.spriteRows, "activities:", p.spriteActivities.length,
-                  "still:", p.spriteStillRows.length, "walk:", p.spriteWalkFrames)
-      console.log("COLDSTART world:", p.worldMonitor, "screens:", p.segments.length,
-                  "gap:", p.gapBottom, "home:", p.effectiveHomeX,
-                  "agent:", p.agentId === "" ? "none" : p.agentId)
-      // Read from the pet the plugin just loaded rather than from whatever
-      // a long-lived shell still holds in its cache.
-      if (p.spriteFaces) {
-        var moods = ["idle", "parked", "working", "waiting", "success", "error", "tired", "sleeping", "dragged"]
-        var line = ""
-        for (var i = 0; i < moods.length; i++)
-          line += (i ? " " : "") + moods[i] + "=" + JSON.stringify(Model.faceFor(moods[i], p.spriteFaces))
-        console.log("COLDSTART still pet, columns:", p.spriteColumns, "faces:", line)
+      var service = serviceLoader.item
+      if (!service || !widgetLoader.item) return
+      if (!("spriteOk" in service) || !("spritePetId" in service)) {
+        root.fail("service does not expose pet readiness")
+        return
       }
-      for (var j = 0; j < p.spriteActivities.length; j++) {
-        var a = p.spriteActivities[j]
-        var one = Model.activityDuration(a, 560)
-        console.log("COLDSTART act", a.name + ":", (one / 1000).toFixed(1) + "s",
-                    "x" + Model.activityRepeats(a, 9000, one),
-                    "fade", Model.crossfadeMs(a.holds ? a.holds[0] : 560) + "ms")
+      if (!service.spriteOk || service.spritePetId !== "gritty" || bundledSprite.status !== Image.Ready) return
+      var source = String(service.spriteBaseSource || "")
+      if (source.indexOf("$install_dir/pets/gritty/") === -1) {
+        root.fail("Gritty came from outside the isolated plugin: " + source)
+        return
       }
-      Qt.quit()
+      if (root.phase === 0) {
+        var petIds = []
+        for (var p = 0; p < service.installedPets.length; p++)
+          petIds.push(String(service.installedPets[p].id || ""))
+        petIds.sort()
+        if (petIds.join(",") !== "gritty,quattro") return
+        console.log("COLDSTART body: sprite pet: gritty source: bundled")
+        console.log("COLDSTART picker: gritty + quattro")
+        // Exercise the real 3.x migration after proving a clean install. Old
+        // setup instructions could leave settings in a file, more than one
+        // bar entry, and top-level plugin entries at the same time.
+        service.fileCfg = ({ pet: "gritty", size: 110, workdir: "/legacy" })
+        service.configMigrated = false
+        root.isolatedConfig = ({
+          version: 1,
+          bar: {
+            position: "top",
+            transparent: false,
+            layout: {
+              left: [{ id: "$plugin_id", followFocus: false }],
+              center: [],
+              right: [{ id: "$plugin_id", size: 140, speakMax: 333 }]
+            }
+          },
+          plugins: [
+            { id: "$plugin_id", talk: false },
+            { id: "$plugin_id", agent: "codex" }
+          ]
+        })
+        root.phase = 1
+        return
+      }
+      if (root.phase === 1) {
+        service.migrateConfig()
+        root.phase = 2
+        return
+      }
+      if (root.phase === 2) {
+        var sections = ["left", "center", "right"]
+        var entries = [], section = ""
+        for (var s = 0; s < sections.length; s++) {
+          var values = root.isolatedConfig.bar.layout[sections[s]] || []
+          for (var i = 0; i < values.length; i++) {
+            if (values[i] && String(values[i].id) === "$plugin_id") {
+              entries.push(values[i])
+              section = sections[s]
+            }
+          }
+        }
+        var topCount = 0
+        var plugins = root.isolatedConfig.plugins || []
+        for (var j = 0; j < plugins.length; j++)
+          if (plugins[j] && String(plugins[j].id) === "$plugin_id") topCount++
+        if (entries.length !== 1 || topCount !== 0 || section !== "left") {
+          root.fail("legacy entries did not collapse into one bar entry")
+          return
+        }
+        var canonical = entries[0]
+        if (canonical.pet !== "gritty" || Number(canonical.size) !== 140
+            || canonical.workdir !== "/legacy" || canonical.talk !== false
+            || canonical.agent !== "codex" || canonical.followFocus !== false
+            || Number(canonical.speakMax) !== 333
+            || Number(canonical._omarchiefConfigVersion) !== 1) {
+          root.fail("legacy settings did not merge into the canonical entry")
+          return
+        }
+        console.log("COLDSTART migration: legacy duplicates -> one bar entry")
+        var next = JSON.parse(JSON.stringify(root.isolatedConfig))
+        next.bar.layout.left[0].pet = "pet-that-is-not-installed"
+        root.isolatedConfig = next
+        root.phase = 3
+        return
+      }
+      if (root.phase === 3) {
+        if (service.cfgPet !== "pet-that-is-not-installed") return
+        console.log("COLDSTART fallback: missing custom pet -> bundled gritty")
+        var bounded = JSON.parse(JSON.stringify(root.isolatedConfig))
+        var entry = bounded.bar.layout.left[0]
+        entry.pet = "gritty"
+        entry.activity = 1e308
+        entry.sessionIdleMin = 1000000000
+        entry.activityRestSec = 1000000000
+        entry.patienceSec = 1000000000
+        entry.speakMax = 1000000000
+        entry.edgeGap = 1000000000
+        // JSON strings and objects are not booleans or standing instructions.
+        // Persisted type mistakes fall back instead of inheriting JavaScript's
+        // surprising truthiness rules or becoming "[object Object]".
+        entry.theme = "false"
+        entry.expressions = "false"
+        entry.hideOnFullscreen = "false"
+        entry.talk = "false"
+        entry.reduceMotion = "true"
+        entry.roam = "true"
+        entry.promptPreamble = ({ surprise: true })
+        root.isolatedConfig = bounded
+        root.phase = 4
+        return
+      }
+      if (root.phase === 4) {
+        if (Number(service.cfg.activity) !== 1e308) return
+        if (service.cfgActivity !== 1 || service.cfgSessionIdleMin !== 0
+            || service.cfgActivityRestSec !== 90 || service.cfgPatience !== 25
+            || service.cfgSpeakMax !== 260 || service.cfgEdgeGap !== -1
+            || !service.cfgTheme || !service.cfgExpressions
+            || !service.cfgHideFullscreen || !service.cfgTalk
+            || service.cfgReduceMotion || service.cfgRoam
+            || service.preamble !== service.defaultPreamble) {
+          root.fail("extreme persisted settings escaped their runtime bounds")
+          return
+        }
+        console.log("COLDSTART bounds: extreme config -> safe defaults")
+        // Simulate another service start after the retired file changed. The
+        // canonical marker must make that file inert forever.
+        service.fileCfg = ({ size: 32, workdir: "/resurrected" })
+        service.configMigrated = false
+        service.legacyLoaded = true
+        service.migrateConfig()
+        root.phase = 5
+        return
+      }
+      if (root.phase === 5) {
+        var sealed = root.isolatedConfig.bar.layout.left[0]
+        if (Number(sealed.size) !== 140 || sealed.workdir !== "/legacy"
+            || Number(sealed._omarchiefConfigVersion) !== 1) {
+          root.fail("retired settings file was merged after migration")
+          return
+        }
+        console.log("COLDSTART migration: retired file remains sealed on restart")
+        // A pre-4 install could exist only in plugins[]. That reference loads
+        // the service but cannot render the new bar widget, so migration must
+        // move it into the manifest's default (right) section.
+        root.isolatedConfig = ({
+          version: 1,
+          bar: {
+            position: "top",
+            transparent: false,
+            layout: { left: [], center: [], right: [] }
+          },
+          plugins: [{ id: "$plugin_id", size: 155, talk: false }]
+        })
+        service.fileCfg = ({})
+        service.configMigrated = false
+        service.legacyLoaded = true
+        root.phase = 6
+        return
+      }
+      if (root.phase === 6) {
+        service.migrateConfig()
+        root.phase = 7
+        return
+      }
+      if (root.phase === 7) {
+        var right = root.isolatedConfig.bar.layout.right || []
+        var topOnly = right.length === 1 ? right[0] : null
+        if (!topOnly || topOnly.id !== "$plugin_id"
+            || Number(topOnly.size) !== 155 || topOnly.talk !== false
+            || Number(topOnly._omarchiefConfigVersion) !== 1
+            || (root.isolatedConfig.plugins || []).length !== 0) {
+          root.fail("top-level-only install did not become one right bar entry")
+          return
+        }
+        console.log("COLDSTART migration: top-only -> right bar entry")
+        console.log("COLDSTART architecture: service + bar-widget")
+        root.phase = 8
+        quitSoon.restart()
+      }
+    }
+  }
+
+  Timer {
+    id: quitSoon
+    interval: 50
+    onTriggered: Qt.quit()
+  }
+
+  Timer {
+    interval: 20000
+    running: true
+    onTriggered: {
+      var service = serviceLoader.item
+      console.log("COLDSTART timeout state:",
+        "service=" + !!service,
+        "widget=" + !!widgetLoader.item,
+        "pluginDir=" + (service ? String(service.pluginDir || "") : ""),
+        "candidate=" + (service ? service.petDirIndex + "/" + JSON.stringify(service.petDirCandidates) : ""),
+        "pets=" + (service ? JSON.stringify(service.installedPets) : ""),
+        "pet=" + (service ? String(service.spritePetId || "") : ""),
+        "spriteOk=" + (service ? service.spriteOk : false),
+        "source=" + (service ? String(service.spriteBaseSource || "") : ""),
+        "imageStatus=" + bundledSprite.status)
+      root.fail("timed out waiting for bundled Gritty")
     }
   }
 }
 QML
 
-out=$(timeout 40 quickshell -p "$work/shell/coldstart.qml" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
-echo "$out" | grep -E 'COLDSTART|omarchief:' || true
+set +e
+out=$(env \
+  HOME="$test_home" \
+  XDG_CONFIG_HOME="$test_config" \
+  XDG_STATE_HOME="$test_state" \
+  XDG_CACHE_HOME="$test_cache" \
+  XDG_DATA_HOME="$test_data" \
+  OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}" \
+  NO_COLOR=1 \
+  timeout 25 quickshell -p "$work/shell/coldstart.qml" --no-color 2>&1)
+code=$?
+set -e
 
-# A fresh process compiles what is on disk, which makes this the one place
-# a binding mistake in the QML shows up honestly. Warnings about the plugin's
-# own files are failures; the duplicate-IPC one is not — every bar on a
-# multi-monitor desktop registers the same target, first-party ones included.
-own=$(echo "$out" | grep 'WARN' | grep "$plugin" | grep -v 'another handler is registered' || true)
-if [[ -n $own ]]; then
-  echo "$own" | sed 's/^/  /'
-  echo "coldstart-check: the plugin's own QML warned" >&2
+printf '%s\n' "$out" | grep -E 'COLDSTART|omarchief:|PluginRegistry:|plugin .* failed' || true
+
+if [[ $code -ne 0 ]]; then
+  printf '%s\n' "$out" >&2
+  echo "coldstart-check: Quickshell exited with $code" >&2
   exit 1
 fi
 
-if echo "$out" | grep -q 'failed to compile'; then
+if printf '%s\n' "$out" | grep -q 'COLDSTART failure:'; then
+  printf '%s\n' "$out" >&2
   echo "coldstart-check: FAILED" >&2
   exit 1
 fi
-echo "$out" | grep -q 'COLDSTART world:' || { echo "coldstart-check: the panel never reported" >&2; exit 1; }
+
+all_warnings=$(printf '%s\n' "$out" \
+  | grep -E '(^|[[:space:]])WARN([[:space:]]|$)|CRITICAL' || true)
+# A second Quickshell process on the same desktop cannot register the already
+# owned portal application id. This one exact host warning says nothing about
+# the isolated plugin; every QML, binding, file, scene, and other warning is a
+# release failure.
+relevant_warnings=$(printf '%s\n' "$all_warnings" \
+  | grep -vF 'WARN qt.qpa.services: Failed to register with host portal' || true)
+if [[ -n $relevant_warnings ]]; then
+  printf '%s\n' "$relevant_warnings" >&2
+  echo "coldstart-check: plugin load warned" >&2
+  exit 1
+fi
+
+printf '%s\n' "$out" | grep -q 'COLDSTART body: sprite pet: gritty source: bundled' \
+  || { echo "coldstart-check: bundled Gritty never became ready" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART picker: gritty + quattro' \
+  || { echo "coldstart-check: bundled pets never reached the picker" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART migration: legacy duplicates -> one bar entry' \
+  || { echo "coldstart-check: legacy settings did not migrate cleanly" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART migration: retired file remains sealed on restart' \
+  || { echo "coldstart-check: retired settings file was not sealed" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART migration: top-only -> right bar entry' \
+  || { echo "coldstart-check: top-level-only install did not gain its bar widget" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART architecture: service + bar-widget' \
+  || { echo "coldstart-check: service/widget pair never became ready" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART fallback: missing custom pet -> bundled gritty' \
+  || { echo "coldstart-check: missing pet did not fall back to bundled Gritty" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART bounds: extreme config -> safe defaults' \
+  || { echo "coldstart-check: persisted numeric settings escaped their bounds" >&2; exit 1; }
+
 echo "coldstart-check: ok"

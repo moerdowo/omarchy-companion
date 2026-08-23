@@ -1,14 +1,15 @@
 import QtQuick
 import QtQuick.Effects
+import Quickshell
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
 // The chief itself. Pure presentation: the panel tells it the mood, the
-// energy, and what to say — this file does the living. Two bodies are
-// available: a procedural blob drawn entirely from theme colors, and any
-// pet from the Codex/Petdex spritesheet ecosystem, whose directional walk
-// rows finally get used for actual walking.
+// energy, and what to say — this file does the living. It renders a companion
+// from the Codex/Petdex spritesheet ecosystem, with a small procedural body as
+// the fail-safe when artwork cannot load; directional walk rows finally get
+// used for actual walking.
 //
 // Travel is a dive: `submerged` sinks the body under the bottom edge, the
 // panel moves the chief to another screen while nothing is visible, and
@@ -31,7 +32,10 @@ Item {
   // Whether this artwork may be turned around, and whether it is right now.
   property bool mayMirror: false
   readonly property bool mirrored: mayMirror && Model.mirroredAt(px, width)
-  onMirroredChanged: mirrorNote.restart()
+  onMirroredChanged: {
+    if (reduceMotion) pet.turned()
+    else mirrorNote.restart()
+  }
   Timer { id: mirrorNote; interval: 1; onTriggered: pet.turned() }
   signal turned()
   property bool expressions: true
@@ -39,22 +43,25 @@ Item {
   // What the artist says a resting creature may wear, if they said.
   property var idleFaces: null
   // A closed-eyes drawing, if the artist made one. A still creature blinks
-  // with it every few seconds — the cheapest, most constant sign of life —
-  // and it is a snap, not a dissolve, because a blink you can watch fade is
-  // not a blink.
+  // with it every few seconds — the cheapest, most constant sign of life.
   property var blinkFace: null
-  // The panel on the creature's front is a screen, and a screen that only
-  // ever shows a face is being wasted. Artwork that names the panel — as a
-  // rectangle in cell fractions, with the slope its top edge is drawn at —
-  // can be asked to show something on it.
   // Being repainted for a new theme. The sheet it wore before is kept for
   // the length of the change and drawn over the new one, masked to the part
   // that has not been reached yet — so the colour rises up the creature
   // instead of the whole of it blinking into another shade.
   property url repaintFrom: ""
   property real repaintFill: 1
+  function cancelRepaint() {
+    repaintRise.stop()
+    repaintFrom = ""
+    repaintFill = 1
+  }
   function repaint(previous) {
     if (String(previous) === "" || !spriteOk) return
+    if (reduceMotion) {
+      cancelRepaint()
+      return
+    }
     repaintFrom = previous
     repaintFill = 0
     repaintRise.restart()
@@ -71,16 +78,12 @@ Item {
     onFinished: pet.repaintFrom = ""
   }
 
-  property var display: null
-  property string displayText: ""
-  property color screenInk: "#c8ff5a"
-  property string screenFont: "monospace"
   property bool blinking: false
   Timer {
     id: blinkStill
     interval: 3000
     repeat: true
-    running: pet.onStage && pet.still && !pet.tucked
+    running: pet.motionEnabled && pet.onStage && pet.still && !pet.tucked
              && Model.mayBlink(pet.mood, pet.faces, pet.blinkFace)
     onTriggered: {
       blinkStill.interval = 2400 + Math.round(Math.random() * 4200)
@@ -118,11 +121,16 @@ Item {
   property int activityPass: 0
   property int activityTargetMs: 9000
   property bool active: true   // window visible; gates every timer below
+  // Bound by the service's accessibility setting. State changes still land,
+  // but ambient loops, hops, and travel settle immediately.
+  property bool reduceMotion: false
+  readonly property bool motionEnabled: active && !reduceMotion
   property bool promptOpen: false
   property bool submerged: false
   property real initialPx: -1
   property string tooltipText: ""
   property string placeholder: "Tell your desktop what to do…"
+  property int orderMax: 8000
 
   // Speech: "" (quiet), "think" (dots while the agent works), "say", "error".
   property string sayMode: ""
@@ -136,8 +144,8 @@ Item {
   property int spriteRows: 9
   property int frameIntervalMs: 140
   // Sprites are artwork first — the ecosystem shows them as drawn, and so do
-  // we. Tinting is opt-in and partial, so the drawing survives it, and the
-  // color is lifted until it is legible on the theme's own background.
+  // we. Live tinting is the brief fallback while a lossless theme redraw is
+  // unavailable; it stays partial so the drawing's own shading survives.
   property real tintStrength: 0
   property int sleepRow: -1
   property int walkFrames: 0
@@ -153,9 +161,11 @@ Item {
   // How far above the window's bottom edge the feet land — the same gap
   // Hyprland leaves between a window and the screen.
   property real groundOffset: 3
-  readonly property var tintRgb: Model.contrastSafe(
+  readonly property var tintRgb: Model.liveTintColor(
     { r: Color.accent.r, g: Color.accent.g, b: Color.accent.b },
-    { r: Color.background.r, g: Color.background.g, b: Color.background.b }, 4.5)
+    { r: Color.background.r, g: Color.background.g, b: Color.background.b })
+  readonly property real tintBrightness: Model.liveTintBrightness(
+    { r: Color.background.r, g: Color.background.g, b: Color.background.b }, tintStrength)
 
   signal petPressed(int button)
   signal promptSubmitted(string text)
@@ -169,6 +179,10 @@ Item {
   signal draggedTo(real x)
 
   readonly property Item hitbox: hit
+  // The layer-shell window must bind its mask to this region. It combines
+  // only surfaces that can currently receive input, so the transparent
+  // desktop strip never steals clicks from applications behind it.
+  readonly property var inputRegion: chiefInputRegion
 
   // Two edges: a wide one a stroll turns around at, and a narrow one that
   // still lets the creature sit right in the corner with its cable running
@@ -178,10 +192,64 @@ Item {
   readonly property color bodyColor: Color.accent
   readonly property color inkColor: Color.background
   readonly property color outlineColor: Qt.darker(bodyColor, 1.35)
+  readonly property real overlayInset: Style.space(12)
+  readonly property real availableOverlayWidth: Math.max(1, width - overlayInset * 2)
+  readonly property real overlayWidthCap: Math.min(Style.space(400), availableOverlayWidth)
+  readonly property var popupBorderSpec: Border.localOrSurfaceSpec(
+    "popups", "border", Color.popups.border, Color.popups.border,
+    Math.max(1, Style.space(2)))
+
+  function boundedX(value) {
+    var inset = Math.min(edgeMargin, Math.max(0, width / 2))
+    return Math.max(inset, Math.min(width - inset, Number(value) || 0))
+  }
+
+  function overlayX(itemWidth) {
+    var latest = Math.max(0, width - itemWidth)
+    var inset = Math.min(overlayInset, latest / 2)
+    return Math.max(inset, Math.min(latest - inset, speakX - itemWidth / 2))
+  }
+
+  function overlayY(itemHeight, gap) {
+    var inset = Style.space(4)
+    var latest = Math.max(inset, height - itemHeight - inset)
+    return Math.max(inset, Math.min(latest, speakTop - itemHeight - gap))
+  }
+
+  function settleMotion() {
+    walkAnim.stop()
+    soloHop.stop()
+    cancelRepaint()
+    activityRest.stop()
+    blinkStillOff.stop()
+    blinkDouble.stop()
+    glanceBack.stop()
+    blinkOff.stop()
+    mirrorNote.stop()
+    hop = 0
+    breathe = 0
+    rest = 0
+    activity = null
+    activityRested = true
+    glance = null
+    blinking = false
+    lidsClosed = false
+  }
+
+  function resetDrag() { hit.cancelGesture() }
+
+  onReduceMotionChanged: if (reduceMotion) settleMotion()
+  onActiveChanged: if (!active) {
+    resetDrag()
+    settleMotion()
+  }
 
   // Rising out of the ground: 0 = fully under, 1 = standing on it.
   property real emerge: submerged ? 0 : 1
-  Behavior on emerge { NumberAnimation { duration: 320; easing.type: Easing.InOutCubic } }
+  Behavior on emerge {
+    enabled: !pet.reduceMotion
+    NumberAnimation { duration: 320; easing.type: Easing.InOutCubic }
+  }
   readonly property bool onStage: active && emerge > 0.9
 
   // ---------------------------------------------------------------- motion
@@ -205,15 +273,25 @@ Item {
   readonly property real speakX: tucked ? (hit.leftLimit + hit.rightLimit) / 2
                                         : body.x + body.width / 2
   readonly property real speakTop: tucked ? hit.y : body.y
+  function contentFraction(value, fallback) {
+    var n = Number(value)
+    return isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback
+  }
   // Where the drawing sits inside its cell, as fractions. Artwork that does
   // not say is assumed to fill it.
   property var content: null
-  readonly property real contentLeft: content && isFinite(Number(content.left)) ? Number(content.left) : 0
-  readonly property real contentRight: content && isFinite(Number(content.right)) ? Number(content.right) : 1
-  readonly property real contentTop: content && isFinite(Number(content.top)) ? Number(content.top) : 0
-  readonly property real contentBottom: content && isFinite(Number(content.bottom)) ? Number(content.bottom) : 1
+  readonly property real contentLeft: contentFraction(content ? content.left : undefined, 0)
+  readonly property real contentRight: Math.max(contentLeft,
+    contentFraction(content ? content.right : undefined, 1))
+  readonly property real contentTop: contentFraction(content ? content.top : undefined, 0)
+  readonly property real contentBottom: Math.max(contentTop,
+    contentFraction(content ? content.bottom : undefined, 1))
+  // Bounds describe the artwork as drawn. Once the whole cell turns around,
+  // its asymmetric empty margins turn with it as well.
+  readonly property real shownContentLeft: mirrored ? 1 - contentRight : contentLeft
+  readonly property real shownContentRight: mirrored ? 1 - contentLeft : contentRight
   readonly property real peek: Model.peekHeight(petSize)
-  // Handed down so timers can hold still while it is out of the way.
+  // One value carries the whole tuck gesture from standing to hidden.
   property real tuckAmount: 0
   // Pushed against a side with only a peek of it showing. Not a mode it is
   // put into: it is simply where it stands.
@@ -230,11 +308,11 @@ Item {
   // would put it a quarter-second behind your own gesture, which reads as
   // mush. The easing is for letting go: springing back, or settling away.
   Behavior on tuckDrop {
-    enabled: !hit.shoving
+    enabled: !hit.shoving && !pet.reduceMotion
     NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
   }
   readonly property real slideFull: Model.sideTuckShift(px - body.width / 2, body.width, width,
-                                                       peek, contentLeft, contentRight, tuckSide)
+                                                       peek, shownContentLeft, shownContentRight, tuckSide)
   // How far the hand has pushed past the point the creature stopped at.
   readonly property real shoveOver: {
     if (!hit.shoving || tuckSide === "down") return 0
@@ -247,7 +325,7 @@ Item {
                                          : Math.min(slideFull, shoveOver))
     : tuckAmount * slideFull * (pet.peeking ? 0.78 : 1)
   Behavior on tuckSlide {
-    enabled: !hit.shoving
+    enabled: !hit.shoving && !pet.reduceMotion
     NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
   }
   signal tuckChanged(bool value)
@@ -255,16 +333,17 @@ Item {
   // travels with the creature and it only slides along the edge, still
   // mostly out of sight.
   signal wantsOut()
-  // Two taps means "out of the way" — the same thing dragging it against a
-  // side means, said with the hand already on it.
   // Shoved far enough to mean "out of the way" — sideways, or downwards.
   signal pushedAside(string side)
   onTuckedChanged: { tuckAmount = tucked ? 1 : 0; tuckChanged(tucked) }
   property bool seeded: false
-  onWidthChanged: if (!seeded && width > 0) {
-    px = initialPx >= 0 ? Math.max(edgeMargin, Math.min(width - edgeMargin, initialPx)) : width * 0.75
+  onWidthChanged: {
+    if (width <= 0) return
+    var next = seeded ? px : (initialPx >= 0 ? initialPx : width * 0.75)
+    px = boundedX(next)
     seeded = true
   }
+  onPetSizeChanged: if (seeded && width > 0) px = boundedX(px)
 
   property int dir: 1
   readonly property bool walking: walkAnim.running
@@ -276,7 +355,7 @@ Item {
   // deliberate takes over, so nothing ever stacks.
   property real rest: 0
   SequentialAnimation {
-    running: pet.onStage && pet.spriteOk && !pet.walking && pet.activity === null
+    running: pet.motionEnabled && pet.onStage && pet.spriteOk && !pet.walking && pet.activity === null
              && pet.mood !== "sleeping" && !hit.pressed
     loops: Animation.Infinite
     NumberAnimation { target: pet; property: "rest"; from: 0; to: 1; duration: 1500; easing.type: Easing.InOutSine }
@@ -294,7 +373,7 @@ Item {
   // hop rather than walk. Only the blob, which has no gait of its own,
   // gets the synthetic one.
   SequentialAnimation {
-    running: pet.active && pet.walking && !pet.spriteOk
+    running: pet.motionEnabled && pet.walking && !pet.spriteOk
     loops: Animation.Infinite
     alwaysRunToEnd: true
     NumberAnimation { target: pet; property: "hop"; from: 0; to: 1; duration: 165; easing.type: Easing.OutQuad }
@@ -305,7 +384,7 @@ Item {
   // the blob's Scale and follow the mood live; only the tempo is sampled
   // per segment, and the two moods never hand off to each other directly.
   SequentialAnimation {
-    running: pet.active && (pet.mood === "sleeping" || pet.mood === "working")
+    running: pet.motionEnabled && (pet.mood === "sleeping" || pet.mood === "working")
     loops: Animation.Infinite
     NumberAnimation { target: pet; property: "breathe"; from: 0; to: 1; duration: pet.mood === "working" ? 240 : 1600; easing.type: Easing.InOutSine }
     NumberAnimation { target: pet; property: "breathe"; from: 1; to: 0; duration: pet.mood === "working" ? 240 : 1600; easing.type: Easing.InOutSine }
@@ -313,7 +392,8 @@ Item {
 
   function wanderTo(tx) {
     walkAnim.stop()
-    tx = Math.max(edgeMargin, Math.min(width - edgeMargin, tx))
+    tx = boundedX(tx)
+    if (still || reduceMotion) { px = tx; return }
     var speed = Model.walkSpeed(mood, energy)
     if (speed <= 0) return
     dir = tx >= px ? 1 : -1
@@ -322,29 +402,32 @@ Item {
     walkAnim.start()
   }
 
-  function cheer() { if (!walking) soloHop.restart() }
+  function cheer() { if (!reduceMotion && !walking && activity === null) soloHop.restart() }
   function stopWalking() { walkAnim.stop() }
 
-  // A quiet moment: sometimes the creature simply finds something to do,
-  // right where it stands.
   // A quiet moment: sometimes the creature finds something to do, right
   // where it stands. Never twice the same thing, never while it is busy,
   // and never so often that it stops being a small surprise.
+  function activityAllowed(rested) {
+    if (still || reduceMotion || activity !== null
+        || !Array.isArray(activities) || activities.length === 0)
+      return false
+    return Model.mayPlayActivity({ onStage: onStage, promptOpen: promptOpen, walking: walking,
+                                   dragging: hit.dragging, mood: mood, rested: rested })
+  }
+  readonly property bool canPlayActivity: activityAllowed(true)
+
   function idleMoment() {
-    if (still) return
-    if (!Model.mayPlayActivity({ onStage: onStage, promptOpen: promptOpen, walking: walking,
-                                 dragging: hit.dragging, mood: mood, rested: activityRested })) return
+    if (!activityAllowed(activityRested)) return
     var pick = Model.pickActivity(Math.random, activities, activityChance, lastActivity)
     if (pick) playActivity(pick)
   }
 
   function playActivity(track) {
-    if (still) return false
     // An explicit request skips the rest, but never the interruptions.
-    if (!Model.mayPlayActivity({ onStage: onStage, promptOpen: promptOpen, walking: walking,
-                                 dragging: hit.dragging, mood: mood, rested: true })) return false
+    if (!canPlayActivity || !track) return false
     activity = track
-    activityPasses = Model.activityRepeats(track, activityTargetMs, Model.activityDuration(track, frameIntervalMs * 4))
+    activityPasses = Model.activityRepeats(activityTargetMs, Model.activityDuration(track, frameIntervalMs * 4))
     // Start the count at the beginning, or every performance after the
     // first inherits the last one's finished count and ends after one pass.
     activityPass = 0
@@ -367,13 +450,19 @@ Item {
   // distance is too small to be worth a walk.
   function walkHome(target) {
     activity = null
-    var x = Math.max(edgeMargin, Math.min(width - edgeMargin, target))
-    if (Math.abs(x - px) < petSize * 0.4) { walkAnim.stop(); px = x; return }
+    var x = boundedX(target)
+    if (still || reduceMotion || Math.abs(x - px) < petSize * 0.4) {
+      walkAnim.stop()
+      px = x
+      return false
+    }
     wanderTo(x)
+    return true
   }
 
   function strollNow() {
-    if (!onStage || mood === "sleeping" || promptOpen) return false
+    if (still || reduceMotion || !onStage || mood === "sleeping" || promptOpen
+        || activity !== null) return false
     var room = petSize * 9
     var toRight = px < width / 2
     var target = toRight ? Math.min(width - marginX, px + room) : Math.max(marginX, px - room)
@@ -389,9 +478,19 @@ Item {
     if (activity !== null && (mood === "working" || mood === "waiting" || mood === "error")) activity = null
     if (mood !== "idle" && mood !== "parked") glance = null
   }
-  onSubmergedChanged: if (submerged) walkAnim.stop()
+  onSubmergedChanged: if (submerged) { walkAnim.stop(); resetDrag() }
   onSpriteSourceChanged: { sheetWidth = 0; sheetHeight = 0 }
-  onPromptOpenChanged: if (promptOpen) { walkAnim.stop(); activity = null; focusTimer.restart() }
+  onPromptOpenChanged: {
+    if (promptOpen) {
+      resetDrag()
+      walkAnim.stop()
+      activity = null
+      focusTimer.restart()
+    } else {
+      focusTimer.stop()
+      ask.focus = false
+    }
+  }
 
   SequentialAnimation {
     id: soloHop
@@ -405,7 +504,8 @@ Item {
     id: brain
     interval: 2500
     repeat: true
-    running: pet.onStage && !pet.still && pet.mood !== "sleeping" && !pet.promptOpen
+    running: pet.motionEnabled && pet.onStage && !pet.still
+             && pet.mood !== "sleeping" && !pet.promptOpen && pet.activity === null
     onTriggered: {
       var a = Model.decideAction(Math.random, pet.mood, pet.activityRate)
       brain.interval = a.nextMs
@@ -424,7 +524,8 @@ Item {
     id: glanceOffer
     interval: 9000
     repeat: true
-    running: pet.onStage && pet.still && !pet.tucked && pet.expressions && !pet.promptOpen
+    running: pet.motionEnabled && pet.onStage && pet.still && !pet.tucked
+             && pet.expressions && !pet.promptOpen
     onTriggered: {
       // The chance decides how lively it is, so the offer comes at a steady
       // pace and lets it through or not — otherwise a high chance still felt
@@ -447,7 +548,7 @@ Item {
     id: blinkTimer
     interval: 3200
     repeat: true
-    running: pet.onStage && pet.mood !== "sleeping"
+    running: pet.motionEnabled && pet.onStage && !pet.spriteOk && pet.mood !== "sleeping"
     onTriggered: {
       pet.lidsClosed = true
       blinkOff.restart()
@@ -464,9 +565,8 @@ Item {
     height: pet.spriteOk ? pet.petSize : pet.petSize * 0.82
     x: Math.round(pet.px - width / 2 + pet.tuckSlide)
     // What stands on the line is the creature's feet, not the bottom of the
-    // cell it is drawn in. Gritty's cell carries forty empty pixels beneath
-    // it, and putting that edge on the line left the creature hovering that
-    // far above the corner it is supposed to sit in.
+    // cell it is drawn in. Sprite cells may carry transparent air below the
+    // artwork; putting that edge on the line would leave the body hovering.
     readonly property real groundY: pet.height - height * pet.contentBottom
                                     - pet.groundOffset - pet.hop * pet.petSize * 0.14
     y: groundY + (1 - pet.emerge) * (pet.height - groundY + 8) + pet.tuckDrop
@@ -477,31 +577,56 @@ Item {
       Rotation {
         origin.x: body.width / 2
         origin.y: body.height
-        angle: pet.spriteOk ? 0 : (pet.walking ? pet.dir * 4 : (hit.containsMouse ? -2 : 0))
-        Behavior on angle { NumberAnimation { duration: 180 } }
+        angle: pet.reduceMotion || pet.spriteOk ? 0
+          : (pet.walking ? pet.dir * 4 : (hit.containsMouse ? -2 : 0))
+        Behavior on angle {
+          enabled: !pet.reduceMotion
+          NumberAnimation { duration: 180 }
+        }
       },
       Scale {
         origin.x: body.width / 2
         origin.y: body.height
-        xScale: pet.spriteOk ? (hit.pressed ? 0.95 : 1 - pet.rest * 0.007)
+        xScale: pet.reduceMotion ? 1
+          : pet.spriteOk ? (hit.pressed ? 0.95 : 1 - pet.rest * 0.007)
           : (1 - pet.hop * 0.05 + pet.breathe * (pet.mood === "working" ? 0.025 : 0.02)) * (hit.pressed ? 0.94 : 1)
-        yScale: pet.spriteOk ? (hit.pressed ? 0.95 : 1 + pet.rest * 0.014)
+        yScale: pet.reduceMotion ? 1
+          : pet.spriteOk ? (hit.pressed ? 0.95 : 1 + pet.rest * 0.014)
           : (1 + pet.hop * 0.09 + pet.breathe * (pet.mood === "working" ? -0.05 : 0.045)) * (hit.pressed ? 0.94 : 1)
-        Behavior on xScale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
-        Behavior on yScale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+        Behavior on xScale {
+          enabled: !pet.reduceMotion
+          NumberAnimation { duration: 120; easing.type: Easing.OutQuad }
+        }
+        Behavior on yScale {
+          enabled: !pet.reduceMotion
+          NumberAnimation { duration: 120; easing.type: Easing.OutQuad }
+        }
       },
       // Turning around is a turn, not a jump: it pivots on the spot.
       Scale {
         id: facing
         origin.x: body.width / 2
         xScale: pet.mirrored ? -1 : 1
-        Behavior on xScale { NumberAnimation { duration: 260; easing.type: Easing.InOutQuad } }
+        Behavior on xScale {
+          enabled: !pet.reduceMotion
+          NumberAnimation { duration: 260; easing.type: Easing.InOutQuad }
+        }
       }
     ]
 
     Loader {
       anchors.fill: parent
       sourceComponent: pet.spriteOk ? spriteBody : blobBody
+    }
+
+    BorderSurface {
+      anchors.fill: parent
+      anchors.margins: -Style.space(3)
+      visible: hit.activeFocus
+      color: "transparent"
+      radius: Style.cornerRadius
+      borderSpec: Border.controlSpec("focus", Color.foreground, Color.accent)
+      Accessible.ignored: true
     }
   }
 
@@ -512,7 +637,10 @@ Item {
       color: pet.bodyColor
       border.color: pet.mood === "error" ? Color.urgent : pet.outlineColor
       border.width: Math.max(1.5, pet.petSize / 34)
-      Behavior on color { ColorAnimation { duration: 350 } }
+      Behavior on color {
+        enabled: !pet.reduceMotion
+        ColorAnimation { duration: 350 }
+      }
 
       Item {
         id: eyes
@@ -535,7 +663,10 @@ Item {
             y: (eyes.eyeH - height) / 2 + ((pet.mood === "tired" || pet.mood === "error") ? eyes.eyeH * 0.18 : 0)
             radius: width / 2
             color: pet.inkColor
-            Behavior on height { NumberAnimation { duration: 90 } }
+            Behavior on height {
+              enabled: !pet.reduceMotion
+              NumberAnimation { duration: 90 }
+            }
           }
         }
       }
@@ -566,54 +697,17 @@ Item {
         : null
       readonly property int cellRow: face ? face[0] : vp.track.row
       readonly property int cellCol: face ? face[1] : vp.frame
-      // An expression changing is worth a dissolve of its own: the face
-      // turns into the next one rather than being swapped for it.
-      onFaceChanged: {
-        if (!pet.still) return
-        vp.fromRow = vp.wasRow
-        vp.fromFrame = vp.wasCol
-        vp.wasRow = vp.cellRow
-        vp.wasCol = vp.cellCol
-        // A blink is a snap; expressions fade into one another.
-        if (pet.blinking || vp.wasBlink) { dissolve.stop(); vp.mix = 1 }
-        else { dissolve.stop(); vp.mix = 0; dissolve.duration = 260; dissolve.start() }
-        vp.wasBlink = pet.blinking
-      }
-      property bool wasBlink: false
-      property int wasRow: 0
-      property int wasCol: 0
 
-      // The frame being left behind, and how far the new one has come in.
-      // Holding on to it is what turns six drawn poses into one motion
-      // rather than six cuts.
-      property int fromFrame: 0
-      property int fromRow: 0
-      property real mix: 1
-
-      // How faded the creature is for reasons other than the dissolve.
+      // Sleeping without an artist-drawn pose is the only state that fades
+      // the artwork. Expression and animation frames stay crisp: they are
+      // authored poses, and blending different silhouettes creates ghosts.
       readonly property real bodyOpacity: pet.mood === "sleeping" && pet.sleepRow < 0 ? 0.55 : 1
 
       function stepTo(next) {
-        vp.fromFrame = vp.frame
-        vp.fromRow = vp.cellRow
         vp.frame = next
-        var ms = Model.crossfadeMs(frameTimer.interval)
-        if (ms <= 0) { dissolve.stop(); vp.mix = 1; return }
-        dissolve.stop()
-        vp.mix = 0
-        dissolve.duration = ms
-        dissolve.start()
       }
 
-      NumberAnimation {
-        id: dissolve
-        target: vp
-        property: "mix"
-        to: 1
-        easing.type: Easing.InOutQuad
-      }
-
-      onTrackChanged: if (!pet.still) { vp.fromRow = vp.track.row; vp.fromFrame = 0; vp.frame = 0; vp.mix = 1 }
+      onTrackChanged: if (!pet.still) vp.frame = 0
 
       Timer {
         id: frameTimer
@@ -629,7 +723,8 @@ Item {
         repeat: true
         // A still row has nothing to animate; leaving the timer running
         // would repaint the same pixels for as long as the desktop is on.
-        running: pet.onStage && !pet.still && !Model.isStillRow(pet.stillRows, vp.track.row)
+        running: pet.motionEnabled && pet.onStage && !pet.still
+                 && !Model.isStillRow(pet.stillRows, vp.track.row)
                  && (pet.mood !== "sleeping" || pet.sleepRow >= 0 || pet.activity !== null)
         onTriggered: {
           if (pet.activity !== null && vp.frame + 1 >= vp.track.frames) {
@@ -637,22 +732,6 @@ Item {
             else { pet.activityPass++; vp.stepTo(0) }
           } else vp.stepTo((vp.frame + 1) % vp.track.frames)
         }
-      }
-
-      // The frame being left behind, underneath, at full strength. It is
-      // the same sheet at a different offset, so it costs one more quad and
-      // no extra texture.
-      Image {
-        id: sheetFrom
-        source: pet.spriteSource
-        width: vp.width * pet.columns
-        height: vp.height * pet.spriteRows
-        x: -vp.fromFrame * vp.width
-        y: -vp.fromRow * vp.height
-        smooth: !pet.pixelArt
-        mipmap: !pet.pixelArt
-        visible: pet.tintStrength <= 0 && vp.mix < 1
-        opacity: vp.bodyOpacity
       }
 
       Image {
@@ -672,7 +751,7 @@ Item {
           }
         }
         visible: pet.tintStrength <= 0
-        opacity: vp.bodyOpacity * vp.mix
+        opacity: vp.bodyOpacity
       }
 
       // The colours it wore a moment ago, still covering the part of it the
@@ -684,6 +763,7 @@ Item {
         width: vp.width
         height: Math.round(vp.height * (1 - pet.repaintFill))
         clip: true
+        opacity: vp.bodyOpacity
         Image {
           source: pet.repaintFrom
           width: vp.width * pet.columns
@@ -696,69 +776,9 @@ Item {
           cache: true
         }
       }
-      // The waterline: a thin bright edge where the new colour has got to,
-      // which is what turns a fade into something being filled.
-      Rectangle {
-        visible: paintOver.visible
-        y: paintOver.height - height
-        width: vp.width
-        height: Math.max(1, Math.round(vp.height * 0.012))
-        gradient: Gradient {
-          GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0) }
-          GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.55) }
-        }
-      }
-
-      // What the screen is showing instead of a face. Dark enough to read
-      // against, sheer enough that the panel underneath still shows through
-      // — which is what makes it look like the creature's own display
-      // rather than a sticker on its head.
-      Item {
-        // Not "screen": Quickshell already has one of those in scope, and an
-        // id that quietly resolves to somebody else's object turns the shear
-        // below into an identity matrix with no warning at all.
-        id: readout
-        visible: pet.display !== null && pet.displayText !== "" && pet.spriteOk
-        x: vp.width * Number(pet.display ? pet.display.x : 0)
-        y: vp.height * Number(pet.display ? pet.display.y : 0)
-        width: vp.width * Number(pet.display ? pet.display.w : 0)
-        height: vp.height * Number(pet.display ? pet.display.h : 0)
-        readonly property real slope: Number(pet.display && pet.display.slope !== undefined
-                                             ? pet.display.slope : 0)
-        transform: Matrix4x4 {
-          matrix: Qt.matrix4x4(1, 0, 0, 0,
-                               readout.slope, 1, 0, 0,
-                               0, 0, 1, 0,
-                               0, 0, 0, 1)
-        }
-        opacity: readout.visible ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 220 } }
-
-        Rectangle {
-          anchors.fill: parent
-          color: "#000000"
-          opacity: 0.78
-          radius: Math.round(parent.height * 0.10)
-        }
-        Text {
-          anchors.fill: parent
-          anchors.margins: parent.height * 0.04
-          text: pet.displayText
-          color: pet.screenInk
-          font.family: pet.screenFont
-          font.pixelSize: Math.round(parent.height * 1.0)
-          font.bold: true
-          minimumPixelSize: 6
-          fontSizeMode: Text.Fit
-          horizontalAlignment: Text.AlignHCenter
-          verticalAlignment: Text.AlignVCenter
-          renderType: pet.pixelArt ? Text.NativeRendering : Text.QtRendering
-        }
-      }
-
-      // The theme-dressed twin: same geometry, partially colorized so the
-      // drawing's own shading survives, and brightened by however much the
-      // tint had to be lifted to stay readable.
+      // The theme-dressed twin. Qt multiplies its colorization target by the
+      // source grayscale. Dark ground gets a small measured lift; blackward
+      // colourization needs none, which keeps the drawing's shadows intact.
       MultiEffect {
         visible: pet.tintStrength > 0
         source: sheet
@@ -768,7 +788,8 @@ Item {
         height: sheet.height
         colorization: pet.tintStrength
         colorizationColor: Qt.rgba(pet.tintRgb.r, pet.tintRgb.g, pet.tintRgb.b, 1)
-        brightness: pet.tintStrength * 0.12
+        brightness: pet.tintBrightness
+        // MultiEffect samples before the source Image's opacity.
         opacity: vp.bodyOpacity
       }
     }
@@ -780,7 +801,7 @@ Item {
     model: 3
     delegate: Text {
       required property int index
-      visible: pet.onStage && pet.mood === "sleeping"
+      visible: pet.onStage && pet.mood === "sleeping" && (!pet.reduceMotion || index === 0)
       text: "z"
       font.family: Style.font.family
       font.bold: true
@@ -788,10 +809,12 @@ Item {
       color: Color.foreground
       property real t: 0
       x: body.x + body.width * 0.85 + index * pet.petSize * 0.17
-      y: body.y - pet.petSize * (0.05 + t * 0.55) - index * pet.petSize * 0.16
-      opacity: visible ? (1 - t) * 0.85 : 0
+      y: body.y - pet.petSize * (0.05 + (pet.reduceMotion ? 0 : t * 0.55))
+         - index * pet.petSize * 0.16
+      opacity: visible ? (pet.reduceMotion ? 0.75 : (1 - t) * 0.85) : 0
+      Accessible.ignored: true
       SequentialAnimation on t {
-        running: pet.onStage && pet.mood === "sleeping"
+        running: pet.motionEnabled && pet.onStage && pet.mood === "sleeping"
         loops: Animation.Infinite
         PauseAnimation { duration: index * 450 }
         NumberAnimation { from: 0; to: 1; duration: 2400 }
@@ -801,36 +824,46 @@ Item {
 
   // ------------------------------------------------------------ mood bubble
 
-  Rectangle {
+  TextMetrics {
+    id: moodMetrics
+    text: bubble.moodText
+    font.family: Style.font.family
+    font.pixelSize: Style.font.subtitle
+  }
+
+  BorderSurface {
     id: bubble
     z: 3
-    readonly property bool tooltipMode: hit.containsMouse && tooltipDelay.done && !pet.promptOpen && pet.sayMode === ""
     readonly property string moodText: Model.bubbleFor(pet.mood)
-    visible: pet.onStage && !pet.promptOpen && pet.sayMode === "" && (tooltipMode || moodText !== "")
+    readonly property bool actionable: visible && pet.mood === "waiting"
+    visible: pet.onStage && !pet.promptOpen && pet.sayMode === "" && moodText !== ""
     color: Color.popups.background
-    border.color: pet.mood === "error" || pet.mood === "waiting" ? Color.urgent : Color.popups.border
-    border.width: 1
-    radius: Style.space(9)
-    width: bubbleText.implicitWidth + Style.space(22)
+    borderSpec: pet.mood === "error" || pet.mood === "waiting"
+      ? Border.flat(Color.urgent, Math.max(1, Style.normalBorderWidth))
+      : pet.popupBorderSpec
+    radius: Style.cornerRadius
+    width: Math.min(pet.availableOverlayWidth, moodMetrics.advanceWidth + Style.space(22))
     height: bubbleText.implicitHeight + Style.space(12)
-    x: Math.max(Style.space(4), Math.min(pet.width - width - Style.space(4), pet.speakX - width / 2))
-    y: pet.speakTop - height - Style.space(10)
-    opacity: tooltipMode ? 1 : 0.6 + pulse * 0.4
-    property real pulse: 0
-    SequentialAnimation on pulse {
-      running: bubble.visible && !bubble.tooltipMode
-      loops: Animation.Infinite
-      NumberAnimation { from: 0; to: 1; duration: 900; easing.type: Easing.InOutSine }
-      NumberAnimation { from: 1; to: 0; duration: 900; easing.type: Easing.InOutSine }
-    }
+    x: pet.overlayX(width)
+    y: pet.overlayY(height, Style.space(10))
+
+    Accessible.role: actionable ? Accessible.Button : Accessible.StaticText
+    Accessible.ignored: !visible
+    Accessible.name: moodText === "!" ? "Omarchief needs attention"
+      : moodText === "✓" ? "Omarchief finished"
+      : moodText === "✗" ? "Omarchief reported an error" : "Omarchief status"
+    Accessible.description: actionable ? "Open the agent console" : ""
+    Accessible.focusable: actionable
+    Accessible.onPressAction: if (actionable) pet.consoleRequested()
 
     Text {
       id: bubbleText
       anchors.centerIn: parent
-      text: bubble.tooltipMode ? pet.tooltipText : bubble.moodText
+      text: bubble.moodText
       color: Color.popups.text
       font.family: Style.font.family
       font.pixelSize: Style.font.subtitle
+      Accessible.ignored: true
     }
 
     // An urgent "!" is an invitation: the waiting session lives in the
@@ -838,86 +871,115 @@ Item {
     // decorative and let the click fall through to the desktop.
     MouseArea {
       anchors.fill: parent
-      enabled: !bubble.tooltipMode && pet.mood === "waiting"
+      enabled: bubble.actionable
       cursorShape: Qt.PointingHandCursor
-      onPressed: pet.consoleRequested()
+      onClicked: pet.consoleRequested()
     }
+  }
+
+  // Hover help is a native tooltip and never replaces the chief's semantic
+  // mood marker. When both are present it sits above the marker.
+  PanelToolTip {
+    id: chiefTooltip
+    parent: pet
+    visible: pet.onStage && hit.containsMouse && !hit.dragging && !pet.promptOpen
+             && pet.sayMode === "" && pet.tooltipText !== ""
+    text: pet.tooltipText
+    x: pet.overlayX(implicitWidth)
+    y: bubble.visible
+      ? Math.max(Style.space(4), bubble.y - implicitHeight - Style.space(4))
+      : pet.overlayY(implicitHeight, Style.space(8))
   }
 
   // ----------------------------------------------------------- speech bubble
   //
-  // The chief's voice. While the agent works it thinks in dots; the reply
+  // The chief's voice. While the agent works it shows live activity; the reply
   // replaces them in place. Clicking the bubble puts it away — the
   // conversation itself lives on in the session.
 
-  Item { visible: false; Text { id: sayMeasure; text: sayBody.text; font.family: Style.font.family; font.pixelSize: Style.font.subtitle } }
-  Item { visible: false; Text { id: doingMeasure; text: pet.doing; font.family: Style.font.family; font.pixelSize: Style.font.body } }
+  TextMetrics {
+    id: sayMetrics
+    text: pet.sayText
+    font.family: Style.font.family
+    font.pixelSize: Style.font.subtitle
+  }
+  TextMetrics {
+    id: doingMetrics
+    text: pet.doing !== "" ? pet.doing : "Working…"
+    font.family: Style.font.family
+    font.pixelSize: Style.font.body
+  }
 
-  Rectangle {
+  BorderSurface {
     id: say
     z: 3
+    readonly property bool actionable: visible && (pet.sayMode === "say" || pet.sayMode === "error")
+    readonly property real desiredWidth: pet.sayMode === "think"
+      ? doingMetrics.advanceWidth + Style.space(44)
+      : sayMetrics.advanceWidth + Style.space(26)
     visible: pet.onStage && !pet.promptOpen && pet.sayMode !== ""
     color: Color.popups.background
-    border.color: pet.sayMode === "error" ? Color.urgent : Color.popups.border
-    border.width: 1
-    radius: Style.space(10)
-    width: pet.sayMode === "think"
-      ? (pet.doing !== "" ? Math.min(Style.space(400), doingMeasure.implicitWidth + Style.space(40)) : Style.space(54))
-      : Math.min(Style.space(400), sayMeasure.implicitWidth + Style.space(26))
+    borderSpec: pet.sayMode === "error"
+      ? Border.flat(Color.urgent, Math.max(1, Style.normalBorderWidth))
+      : pet.popupBorderSpec
+    radius: Style.cornerRadius
+    clip: true
+    width: Math.min(pet.overlayWidthCap,
+                    Math.max(Math.min(pet.overlayWidthCap, Style.space(72)), desiredWidth))
     height: sayContent.implicitHeight + Style.space(16)
-    x: Math.max(Style.space(8), Math.min(pet.width - width - Style.space(8), pet.speakX - width / 2))
-    y: pet.speakTop - height - Style.space(12)
+    x: pet.overlayX(width)
+    y: pet.overlayY(height, Style.space(12))
+
+    Accessible.role: actionable ? Accessible.Button : Accessible.StaticText
+    Accessible.ignored: !visible
+    Accessible.name: pet.sayMode === "think"
+      ? (pet.doing !== "" ? "Omarchief is working: " + pet.doing : "Omarchief is working")
+      : pet.sayText
+    Accessible.description: pet.sayMode === "error" ? "Open the agent console"
+      : pet.sayMode === "say" ? "Dismiss this reply" : ""
+    Accessible.focusable: actionable
+    Accessible.onPressAction: {
+      if (pet.sayMode === "error") pet.consoleRequested()
+      else if (pet.sayMode === "say") pet.bubbleDismissed()
+    }
 
     Item {
       id: sayContent
       anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
-      implicitHeight: pet.sayMode === "think" ? (pet.doing !== "" ? doingRow.implicitHeight : dots.implicitHeight) : sayCol.implicitHeight
+      implicitHeight: pet.sayMode === "think" ? doingRow.implicitHeight : sayCol.implicitHeight
 
       // While the agent narrates its work, the bubble says what it is doing
       // rather than just that it is doing something.
       Row {
         id: doingRow
-        visible: pet.sayMode === "think" && pet.doing !== ""
+        visible: pet.sayMode === "think"
+        width: parent.width
         spacing: Style.space(8)
-        anchors.horizontalCenter: parent.horizontalCenter
         Text {
           id: doingPulse
           text: "●"
           color: Color.accent
           font.pixelSize: Style.font.caption
           anchors.verticalCenter: parent.verticalCenter
+          Accessible.ignored: true
           SequentialAnimation on opacity {
-            running: doingRow.visible
+            id: doingAnimation
+            running: pet.motionEnabled && doingRow.visible
             loops: Animation.Infinite
             NumberAnimation { from: 0.3; to: 1; duration: 500; easing.type: Easing.InOutSine }
             NumberAnimation { from: 1; to: 0.3; duration: 500; easing.type: Easing.InOutSine }
+            onRunningChanged: if (!running && pet.reduceMotion) doingPulse.opacity = 1
           }
         }
         Text {
-          text: pet.doing
+          text: pet.doing !== "" ? pet.doing : "Working…"
           color: Color.popups.text
           font.family: Style.font.family
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
-          width: Math.min(Style.space(360), implicitWidth)
+          width: Math.max(1, doingRow.width - doingPulse.width - doingRow.spacing)
           anchors.verticalCenter: parent.verticalCenter
-        }
-      }
-
-      Text {
-        id: dots
-        visible: pet.sayMode === "think" && pet.doing === ""
-        anchors.horizontalCenter: parent.horizontalCenter
-        text: "· · ·"
-        color: Color.popups.text
-        font.family: Style.font.family
-        font.pixelSize: Style.font.title
-        font.bold: true
-        SequentialAnimation on opacity {
-          running: dots.visible
-          loops: Animation.Infinite
-          NumberAnimation { from: 0.25; to: 1; duration: 450; easing.type: Easing.InOutSine }
-          NumberAnimation { from: 1; to: 0.25; duration: 450; easing.type: Easing.InOutSine }
+          Accessible.ignored: true
         }
       }
 
@@ -931,85 +993,113 @@ Item {
           id: sayBody
           width: parent.width
           text: pet.sayText
-          wrapMode: Text.Wrap
+          wrapMode: Text.WordWrap
+          maximumLineCount: 6
+          elide: Text.ElideRight
           color: Color.popups.text
           font.family: Style.font.family
           font.pixelSize: Style.font.subtitle
+          Accessible.ignored: true
         }
 
         Text {
           visible: pet.sayMode === "error"
-          text: "console →"
+          text: "Open console"
           color: Color.urgent
           font.family: Style.font.family
           font.pixelSize: Style.font.body
+          Accessible.ignored: true
         }
       }
     }
 
     MouseArea {
       anchors.fill: parent
-      enabled: pet.sayMode === "say" || pet.sayMode === "error"
+      enabled: say.actionable
       cursorShape: Qt.PointingHandCursor
-      onPressed: pet.sayMode === "error" ? pet.consoleRequested() : pet.bubbleDismissed()
+      onClicked: pet.sayMode === "error" ? pet.consoleRequested() : pet.bubbleDismissed()
     }
   }
 
   // ------------------------------------------------------------- ask input
   //
   // The whole point of the chief: a one-line order form. Enter files the
-  // order, Escape (or clicking elsewhere) puts the pen down but keeps the
-  // draft. An empty Enter summons the console.
+  // order, Escape puts the pen down but keeps the draft. An empty Enter
+  // summons the console. The shell-native field owns focus and selection.
 
-  MouseArea {
-    // While the prompt is open the entire strip is interactive (the panel
-    // widens the input mask), so a click anywhere outside the input puts
-    // the prompt away.
-    anchors.fill: parent
-    enabled: pet.promptOpen
-    onPressed: pet.promptDismissed()
+  // Native field fills are translucent because they normally sit on a panel;
+  // this single backing surface gives the standalone prompt that panel layer.
+  BorderSurface {
+    z: 3
+    visible: ask.visible
+    x: ask.x
+    y: ask.y
+    width: ask.width
+    height: ask.height
+    color: Color.popups.background
+    borderSpec: Border.none()
+    radius: Style.cornerRadius
+    Accessible.ignored: true
   }
 
-  Rectangle {
+  TextField {
     id: ask
+    z: 4
+    property bool ownedFocus: false
     visible: pet.promptOpen && pet.onStage
-    width: Math.min(pet.width - Style.space(24), Style.space(400))
-    height: input.implicitHeight + Style.space(18)
-    color: Color.popups.background
-    border.color: Color.popups.border
-    border.width: 1
-    radius: Style.space(10)
-    x: Math.max(Style.space(12), Math.min(pet.width - width - Style.space(12), pet.speakX - width / 2))
-    y: pet.speakTop - height - Style.space(12)
-
-    TextInput {
-      id: input
-      anchors.fill: parent
-      anchors.margins: Style.space(9)
-      color: Color.popups.text
-      font.family: Style.font.family
-      font.pixelSize: Style.font.title
-      clip: true
-      verticalAlignment: TextInput.AlignVCenter
-      onAccepted: {
-        var t = text
-        text = ""
-        pet.promptSubmitted(t)
+    width: pet.overlayWidthCap
+    x: pet.overlayX(width)
+    y: pet.overlayY(height, Style.space(12))
+    foreground: Color.popups.text
+    accent: Color.accent
+    placeholderText: pet.placeholder
+    maximumLength: pet.orderMax
+    font.family: Style.font.family
+    font.pixelSize: Style.font.body
+    selectByMouse: true
+    Accessible.name: "Ask Omarchief"
+    Accessible.description: "Enter an instruction. Press Escape to close."
+    onAccepted: {
+      var draft = text
+      pet.promptSubmitted(draft)
+      // Submission is synchronous. A consumed order closes the prompt; a
+      // refused one leaves both field and draft intact for correction.
+      if (!pet.promptOpen) text = ""
+    }
+    Keys.onEscapePressed: pet.promptDismissed()
+    onVisibleChanged: {
+      if (visible) focusTimer.restart()
+      else {
+        focusLoss.stop()
+        ownedFocus = false
       }
-      Keys.onEscapePressed: pet.promptDismissed()
-
-      Text {
-        visible: input.text === ""
-        anchors.verticalCenter: parent.verticalCenter
-        text: pet.placeholder
-        color: Color.popups.text
-        opacity: 0.45
-        font.family: Style.font.family
-        font.pixelSize: Style.font.title
+    }
+    onActiveFocusChanged: {
+      if (activeFocus) {
+        ownedFocus = true
+        focusLoss.stop()
+      } else if (ownedFocus && visible) {
+        focusLoss.restart()
       }
     }
   }
-  Timer { id: focusTimer; interval: 90; onTriggered: if (pet.promptOpen) input.forceActiveFocus() }
+  Timer {
+    id: focusTimer
+    interval: 90
+    onTriggered: if (ask.visible) {
+      ask.forceActiveFocus()
+      ask.cursorPosition = ask.length
+    }
+  }
+  Timer {
+    id: focusLoss
+    interval: 160
+    onTriggered: {
+      if (!ask.visible || ask.activeFocus || hit.activeFocus) return
+      if (hit.pressed) { restart(); return }
+      pet.promptDismissed()
+    }
+  }
 
   // ------------------------------------------------------------------- hit
 
@@ -1017,11 +1107,6 @@ Item {
     id: hit
     z: 1
     x: leftLimit
-    // The hitbox rises over the bubbles when one of them is clickable, so
-    // the mask lets those clicks in; otherwise it hugs the body and the
-    // desktop above stays click-through.
-    readonly property bool coversBubbles: (pet.mood === "waiting" && pet.sayMode === "")
-      || pet.sayMode === "say" || pet.sayMode === "error"
     // Tucked away it must catch clicks on what is left showing and not one
     // pixel more: the whole point of sinking was to hand that area back to
     // the window underneath, and an invisible catcher over it would be a
@@ -1032,8 +1117,8 @@ Item {
     // body.x already carries the slide; adding it again put the hitbox off
     // the screen and left nothing to click, which is a creature you cannot
     // get back. It never narrows below the peek for the same reason.
-    readonly property real shownLeft: body.x + body.width * pet.contentLeft
-    readonly property real shownRight: body.x + body.width * pet.contentRight
+    readonly property real shownLeft: body.x + body.width * pet.shownContentLeft
+    readonly property real shownRight: body.x + body.width * pet.shownContentRight
     readonly property real leftLimit: pet.tucked
       ? Math.max(0, Math.min(shownLeft, pet.width - pet.peek))
       : body.x - pet.petSize * 0.18
@@ -1045,14 +1130,28 @@ Item {
     readonly property real shownTop: body.y + body.height * pet.contentTop
     readonly property real shownBottom: body.y + body.height * pet.contentBottom
     y: pet.tucked ? Math.max(0, Math.min(shownTop, pet.height - pet.peek))
-       : coversBubbles ? Math.min(body.y - pet.petSize * 0.30, say.visible ? say.y : bubble.visible ? bubble.y : body.y)
-                       : body.y - pet.petSize * 0.30
+       : body.y - pet.petSize * 0.30
     width: Math.max(0, rightLimit - leftLimit)
     height: pet.tucked ? Math.max(pet.peek, Math.min(pet.height, shownBottom) - y)
                        : body.y + body.height + pet.petSize * 0.04 - y
     hoverEnabled: true
+    preventStealing: true
+    activeFocusOnTab: pet.promptOpen
     cursorShape: dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
-    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+    acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+    Accessible.role: Accessible.Button
+    Accessible.ignored: !pet.onStage
+    Accessible.name: "Omarchief"
+    Accessible.description: pet.tooltipText
+    Accessible.focusable: pet.promptOpen
+    Accessible.focused: activeFocus
+    Accessible.pressed: pressed
+    Accessible.onPressAction: pet.petPressed(Qt.LeftButton)
+    Keys.onReturnPressed: pet.petPressed(Qt.LeftButton)
+    Keys.onEnterPressed: pet.petPressed(Qt.LeftButton)
+    Keys.onSpacePressed: pet.petPressed(Qt.LeftButton)
+    Keys.onEscapePressed: pet.promptDismissed()
 
     // Press, move, release: a drag carries the creature and sets where it
     // lives; anything shorter than a few pixels was meant as a click.
@@ -1083,14 +1182,24 @@ Item {
     // put down.
     readonly property bool holding: dragging && (pressedButtons & Qt.LeftButton)
 
+    function cancelGesture() {
+      dragging = false
+      pushedTo = ""
+      shoveSide = ""
+      handMoved = 0
+      handDown = 0
+      pet.tuckAmount = pet.tucked ? 1 : 0
+    }
+
     onPressed: function(mouse) {
       if (mouse.button !== Qt.LeftButton) { pet.petPressed(mouse.button); return }
+      forceActiveFocus()
       grabX = mouse.x + x
       grabY = mouse.y + y
       grabPx = pet.px
       dragging = false
-      // Reaching for the creature ends a daydream at once: without this a
-      // sparkle mid-glance would crossfade under the picked-up face.
+      // Reaching for the creature ends a daydream at once, so the picked-up
+      // face cannot be immediately replaced by a resting expression.
       pet.glance = null
       pet.blinking = false
     }
@@ -1100,6 +1209,7 @@ Item {
       var down = (mouse.y + y) - grabY
       if (!dragging && !Model.isDrag(moved) && !Model.isDrag(down)) return
       if (!dragging && pet.tucked) pet.wantsOut()
+      if (!dragging && pet.promptOpen) pet.promptDismissed()
       dragging = true
       pet.activity = null
       pet.stopWalking()
@@ -1132,16 +1242,20 @@ Item {
       // Not far enough to mean it: it springs back to standing, eased,
       // which is why the shove flag drops before the value does.
       if (pushedTo !== "") peekArmed = false
-      shoveSide = ""
-      handMoved = 0
-      handDown = 0
-      if (!pet.tucked) pet.tuckAmount = 0
-      dragging = false
-      pushedTo = ""
+      cancelGesture()
     }
-    onCanceled: dragging = false
-    onEntered: tooltipDelay.restart()
-    onExited: { tooltipDelay.stop(); tooltipDelay.done = false; peekArmed = true }
+    onCanceled: cancelGesture()
+    onExited: peekArmed = true
   }
-  Timer { id: tooltipDelay; interval: 600; property bool done: false; onTriggered: done = true }
+
+  // True union of only the currently actionable surfaces. The owning
+  // PanelWindow binds its input mask here instead of widening to this whole
+  // full-width item whenever the prompt opens.
+  Region {
+    id: chiefInputRegion
+    Region { item: hit }
+    Region { item: bubble.actionable ? bubble : null }
+    Region { item: say.actionable ? say : null }
+    Region { item: ask.visible ? ask : null }
+  }
 }

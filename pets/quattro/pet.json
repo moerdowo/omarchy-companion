@@ -1,7 +1,7 @@
 {
   "id": "quattro",
-  "name": "Quattro",
-  "author": "daven niemann",
+  "displayName": "Quattro",
+  "author": "Omarchy / DHH; adapted by Daven Niemann",
   "description": "A rally car parked at the bottom of your screen, headlights on, lit by your theme, waiting for the stage to start.",
   "spritesheetPath": "quattro.webp",
   "rows": 1,
@@ -18,5 +18,11 @@
     "hueMin": 0,
     "hueMax": 360,
     "satMin": 18
+  },
+  "content": {
+    "left": 0.021,
+    "right": 0.979,
+    "top": 0.0337,
+    "bottom": 0.9663
   }
 }

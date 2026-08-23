@@ -11,8 +11,9 @@
 # monochrome theme therefore yields a monochrome pet and a vivid one a vivid
 # pet, both with the artist's shading intact.
 #
-# Given the desktop background as well, the finished sheet is then lifted
-# until the creature clears the contrast floor WCAG asks of graphics, 3:1.
+# Given the desktop background as well, the finished sheet is then fitted
+# toward whichever lightness endpoint contrasts more until the creature
+# clears the contrast floor WCAG asks of graphics, 3:1.
 # Most themes accent with a mid tone on a near-black desktop, which recolours
 # a bright pet into a dim smudge; the lift is applied to lightness alone, as
 # a gamma, so hue and saturation are untouched, black stays black, white
@@ -29,27 +30,75 @@ Dress a pet's spritesheet in a theme colour. Only the hues inside the
 window count as its skin; everything else is left exactly as drawn.
 
 Given the desktop's background as well, the finished sheet is then fitted
-in lightness — lifted on a dark desktop, deepened on a pale one — until
-the creature's body clears the contrast a graphic owes its surroundings.
+in lightness toward the higher-contrast endpoint until the creature's body
+clears the contrast a graphic owes its surroundings.
 Set OMARCHIEF_CONTRAST_FLOOR to override the ratio it aims for.
 USAGE
   exit 0
 fi
 
-src=${1:?source sheet required}
-out=${2:?output path required}
-accent=${3:?accent colour required}
+if (( $# < 3 || $# > 7 )); then
+  echo "omarchief-recolor: expected 3–7 arguments; try --help" >&2
+  exit 2
+fi
+
+src=$1
+out=$2
+accent=$3
 hue_min=${4:-40}
 hue_max=${5:-100}
 sat_min=${6:-15}
 background=${7:-}
+
+number_in_range() {
+  [[ $1 =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] \
+    && awk -v n="$1" -v lo="$2" -v hi="$3" 'BEGIN { exit !(n >= lo && n <= hi) }'
+}
+
+[[ $accent =~ ^#[0-9A-Fa-f]{6}$ ]] || {
+  echo "omarchief-recolor: accent must be #rrggbb" >&2
+  exit 2
+}
+if [[ -n $background && ! $background =~ ^#[0-9A-Fa-f]{6}$ ]]; then
+  echo "omarchief-recolor: background must be #rrggbb" >&2
+  exit 2
+fi
+number_in_range "$hue_min" 0 360 || {
+  echo "omarchief-recolor: hueMin must be between 0 and 360" >&2
+  exit 2
+}
+number_in_range "$hue_max" 0 360 || {
+  echo "omarchief-recolor: hueMax must be between 0 and 360" >&2
+  exit 2
+}
+awk -v lo="$hue_min" -v hi="$hue_max" 'BEGIN { exit !(lo <= hi) }' || {
+  echo "omarchief-recolor: hueMin must not exceed hueMax" >&2
+  exit 2
+}
+number_in_range "$sat_min" 0 100 || {
+  echo "omarchief-recolor: satMin must be between 0 and 100" >&2
+  exit 2
+}
+
 # WCAG asks 3:1 of a graphic. That assumes the graphic has a shape and a
 # colour of its own to be told apart by; where it does not, more is needed —
 # see the floor worked out below.
 floor=${OMARCHIEF_CONTRAST_FLOOR:-}
+if [[ -n $floor ]]; then
+  if ! [[ $floor =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] \
+      || ! awk -v f="$floor" 'BEGIN { exit !(f > 1 && f <= 21) }'; then
+    echo "omarchief-recolor: OMARCHIEF_CONTRAST_FLOOR must be greater than 1 and at most 21" >&2
+    exit 2
+  fi
+fi
 
 command -v magick >/dev/null || { echo "omarchief-recolor: ImageMagick (magick) is required" >&2; exit 1; }
 [[ -f $src ]] || { echo "omarchief-recolor: no such sheet: $src" >&2; exit 1; }
+[[ -d $(dirname -- "$out") ]] || { echo "omarchief-recolor: output directory does not exist: $(dirname -- "$out")" >&2; exit 1; }
+if [[ -z $out || $out == */ || -d $out ]]; then
+  echo "omarchief-recolor: output must name a file, not a directory: $out" >&2
+  exit 2
+fi
 
 # HSL channels of the accent: hue as a 0-255 grey, saturation as a fraction.
 read -r target_hue target_sat < <(
@@ -86,9 +135,12 @@ hue_max_pct=$(awk -v v="$hue_max" 'BEGIN { printf "%.4f", 100 * v / 360 }')
 # file: a half-finished sheet is a broken image to whoever loads it, and the
 # reload that follows arrives while the next write is still going.
 tmp=$(mktemp "${out}.XXXXXX")
-trap 'rm -f "$tmp"' EXIT
+skin=$(mktemp "${out}.XXXXXX")
+encoded=$(mktemp "${out}.XXXXXX")
+trap 'rm -f "$tmp" "$skin" "$encoded"' EXIT
 
 magick "$src" \
+  \( +clone -write MPR:base +delete \) \
   \( +clone -alpha extract -write MPR:alpha +delete \) \
   -alpha off -colorspace HSL \
   \( +clone -channel R -separate +channel -write MPR:hue \
@@ -96,16 +148,18 @@ magick "$src" \
   \( MPR:hue -threshold "${hue_max_pct}%" -negate -write MPR:below +delete \) \
   \( +clone -channel G -separate +channel -write MPR:sat \
      -threshold "${sat_min}%" MPR:above -compose Multiply -composite \
-     MPR:below -compose Multiply -composite -write MPR:mask +delete \) \
+     MPR:below -compose Multiply -composite \
+     MPR:alpha -compose Multiply -composite \
+     -write MPR:mask -write "png:$skin" +delete \) \
   \( +clone -channel B -separate +channel -write MPR:lit +delete \) \
   -delete 0 \
   \( MPR:hue \( MPR:hue -fill "gray($target_hue)" -colorize 100 \) MPR:mask -compose over -composite \) \
   \( MPR:sat \( MPR:sat -evaluate Multiply "$sat_factor" \) MPR:mask -compose over -composite \) \
   MPR:lit \
-  -set colorspace HSL -combine -colorspace sRGB \
+  -set colorspace HSL -combine -colorspace sRGB -write MPR:colored +delete \
+  MPR:base MPR:colored MPR:mask -compose over -composite \
   MPR:alpha -alpha off -compose CopyOpacity -composite \
-  -define webp:lossless=false -quality 92 \
-  "webp:$tmp"
+  -depth 8 "miff:$tmp"
 
 # ---------------------------------------------------------------- contrast
 #
@@ -122,7 +176,8 @@ body_weight() {
   magick "$1" \
     \( +clone -alpha extract -write MPR:opacity +delete \) \
     -alpha off -colorspace HSL -channel B -separate +channel -threshold 25% \
-    MPR:opacity -compose Multiply -composite -alpha off "$2"
+    MPR:opacity -compose Multiply -composite \
+    "$2" -compose Multiply -composite -alpha off "$3"
 }
 
 creature_colour() {
@@ -143,11 +198,13 @@ luminance() {
     } BEGIN { printf "%.6f\n", 0.2126 * l(r) + 0.7152 * l(g) + 0.0722 * l(b) }'
 }
 
-lighten() {   # $1 in, $2 gamma on lightness, $3 out
+fit_lightness() {   # $1 in, $2 gamma on lightness, $3 skin mask, $4 out
   magick "$1" \( +clone -alpha extract -write MPR:keep +delete \) \
-    -alpha off -colorspace HSL -channel B -gamma "$2" +channel -colorspace sRGB \
+    \( +clone -alpha off -colorspace HSL -channel B -gamma "$2" +channel \
+       -colorspace sRGB -write MPR:fitted +delete \) \
+    MPR:fitted "$3" -compose over -composite \
     MPR:keep -alpha off -compose CopyOpacity -composite \
-    -define webp:lossless=false -quality 92 "webp:$3"
+    -depth 8 "miff:$4"
 }
 
 if [[ -n $background ]]; then
@@ -159,8 +216,8 @@ if [[ -n $background ]]; then
       printf "%.4f\n", (hi + 0.05) / (lo + 0.05) }'
   }
   weight=$(mktemp "${out}.XXXXXX")
-  trap 'rm -f "$tmp" "$weight"' EXIT
-  body_weight "$tmp" "png:$weight"
+  trap 'rm -f "$tmp" "$skin" "$encoded" "$weight"' EXIT
+  body_weight "$tmp" "$skin" "png:$weight"
   read -r cr cg cb < <(creature_colour "$tmp" "$weight")
   now=$(ratio_of "$(luminance "$cr" "$cg" "$cb")")
 
@@ -209,21 +266,27 @@ if [[ -n $background ]]; then
     # A hair past the floor rather than at it, for what the sampling and the
     # encoder still round away.
     aim=$(awk -v f="$floor" 'BEGIN { printf "%.4f", f * 1.02 }')
-    # On a dark desktop the contrast rises with the gamma, on a light one it
-    # falls, so the bracket and the test both turn around. Either way the
-    # answer wanted is the least change that clears the floor.
-    if awk -v b="$bg_lum" 'BEGIN { exit !(b < 0.5) }'; then up=1; lo=1.0; hi=3.2
-    else up=0; lo=0.30; hi=1.0; fi
+    # A perceptual mid-tone is not correctly split at 50% luminance. Choose
+    # the endpoint that can produce the stronger contrast against this exact
+    # background, then find the least gamma change in that direction.
+    white_ratio=$(ratio_of 1)
+    black_ratio=$(ratio_of 0)
+    if awk -v w="$white_ratio" -v b="$black_ratio" 'BEGIN { exit !(w >= b) }'; then
+      up=1; lo=1.0; hi=16.0
+    else
+      up=0; lo=0.0625; hi=1.0
+    fi
     step=$(mktemp "${out}.XXXXXX"); small=$(mktemp "${out}.XXXXXX")
-    smallw=$(mktemp "${out}.XXXXXX")
-    trap 'rm -f "$tmp" "$weight" "$step" "$small" "$smallw"' EXIT
-    magick "$tmp" -sample 25% -define webp:lossless=true "webp:$small"
-    body_weight "$small" "png:$smallw"
-    # Four steps land within a seventh of a stop, and the full-size check
-    # below closes the rest — cheaper than a sixth bisection of a thumbnail.
-    for _ in 1 2 3 4; do
+    smallskin=$(mktemp "${out}.XXXXXX"); smallw=$(mktemp "${out}.XXXXXX")
+    trap 'rm -f "$tmp" "$skin" "$encoded" "$weight" "$step" "$small" "$smallskin" "$smallw"' EXIT
+    magick "$tmp" -sample 25% -depth 8 "miff:$small"
+    magick "$skin" -sample 25% "png:$smallskin"
+    body_weight "$small" "$smallskin" "png:$smallw"
+    # Seven thumbnail steps locate the answer closely; one full-size render
+    # normally clears it, and the checks below close any sampling gap.
+    for _ in 1 2 3 4 5 6 7; do
       mid=$(awk -v a="$lo" -v b="$hi" 'BEGIN { printf "%.4f", (a + b) / 2 }')
-      lighten "$small" "$mid" "$step"
+      fit_lightness "$small" "$mid" "$smallskin" "$step"
       got=$(ratio_of "$(luminance $(creature_colour "$step" "$smallw"))")
       short=$(awk -v g="$got" -v f="$aim" 'BEGIN { print (g < f) ? 1 : 0 }')
       if [[ $up == 1 ]]; then
@@ -233,24 +296,31 @@ if [[ -n $background ]]; then
       fi
     done
     answer=$([[ $up == 1 ]] && echo "$hi" || echo "$lo")
-    lighten "$tmp" "$answer" "$step"
+    fit_lightness "$tmp" "$answer" "$skin" "$step"
 
     # The thumbnail is close, not exact, and what ships is the full-size
     # sheet — so that is what gets measured, against the body as it was
     # drawn, and nudged further until it truly clears the floor.
-    for _ in 1 2 3; do
+    for _ in 1 2 3 4 5 6; do
       got=$(ratio_of "$(luminance $(creature_colour "$step" "$weight"))")
       awk -v g="$got" -v f="$floor" 'BEGIN { exit !(g < f) }' || break
       answer=$(awk -v a="$answer" -v u="$up" \
-        'BEGIN { printf "%.4f", u == 1 ? a * 1.15 : a * 0.92 }')
-      lighten "$tmp" "$answer" "$step"
+        'BEGIN { printf "%.4f", u == 1 ? a * 1.18 : a * 0.82 }')
+      fit_lightness "$tmp" "$answer" "$skin" "$step"
     done
 
+    got=$(ratio_of "$(luminance $(creature_colour "$step" "$weight"))")
+    if awk -v g="$got" -v f="$floor" 'BEGIN { exit !(g < f) }'; then
+      echo "omarchief-recolor: cannot reach contrast floor $floor against $background" >&2
+      exit 1
+    fi
+
     mv -f "$step" "$tmp"
-    trap 'rm -f "$tmp" "$weight" "$small" "$smallw"' EXIT
+    trap 'rm -f "$tmp" "$skin" "$encoded" "$weight" "$small" "$smallskin" "$smallw"' EXIT
   fi
 fi
 
-mv -f "$tmp" "$out"
-rm -f "${weight:-}" "${small:-}" "${smallw:-}" "${step:-}"
+magick "$tmp" -define webp:lossless=true "webp:$encoded"
+mv -fT "$encoded" "$out"
+rm -f "$tmp" "$skin" "${weight:-}" "${small:-}" "${smallskin:-}" "${smallw:-}" "${step:-}"
 trap - EXIT

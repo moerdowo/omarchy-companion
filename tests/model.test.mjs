@@ -1,9 +1,11 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { createRequire } from "node:module"
-import { execFileSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { execFileSync, spawn } from "node:child_process"
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { readFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 const require = createRequire(import.meta.url)
 const M = require("../keystone/Model.js")
@@ -30,21 +32,23 @@ test("hook freshness follows the ecosystem's windows", () => {
   assert.equal(M.freshHookState("bogus", 1, "claude", "claude"), "")
 })
 
-const base = { energy: 1, agentWindows: 0, consoleOpen: false, hookState: "", hookAgeSec: 0, hookAgent: "", defaultAgent: "claude" }
+const base = { energy: 1, consoleWindows: 0, consoleOpen: false, hookState: "", hookAgeSec: 0, hookAgent: "", defaultAgent: "claude" }
 
 test("mood ladder priorities", () => {
   assert.equal(M.resolveMood({ ...base }), "idle")
   assert.equal(M.resolveMood({ ...base, energy: 0.1 }), "tired")
   assert.equal(M.resolveMood({ ...base, energy: 0 }), "sleeping")
-  assert.equal(M.resolveMood({ ...base, agentWindows: 1 }), "parked")
-  assert.equal(M.resolveMood({ ...base, agentWindows: 1, consoleOpen: true }), "working")
+  assert.equal(M.resolveMood({ ...base, consoleWindows: 1 }), "parked")
+  assert.equal(M.resolveMood({ ...base, consoleWindows: 1, consoleOpen: true }), "working")
+  assert.equal(M.resolveMood({ ...base, agentWindows: 3 }), "idle",
+    "ordinary tiled agent terminals are not parked consoles")
   assert.equal(M.resolveMood({ ...base, hookState: "waiting", hookAgeSec: 10, hookAgent: "claude" }), "waiting")
   assert.equal(M.resolveMood({ ...base, hookState: "error", hookAgeSec: 10, hookAgent: "claude" }), "error")
   assert.equal(M.resolveMood({ ...base, hookState: "success", hookAgeSec: 2, hookAgent: "claude" }), "success")
   // sleeping beats even an urgent hook: rate-limited means nothing will run
   assert.equal(M.resolveMood({ ...base, energy: 0, hookState: "waiting", hookAgeSec: 5, hookAgent: "claude" }), "sleeping")
   // stale hook falls through to window heuristics
-  assert.equal(M.resolveMood({ ...base, agentWindows: 1, hookState: "success", hookAgeSec: 100, hookAgent: "claude" }), "parked")
+  assert.equal(M.resolveMood({ ...base, consoleWindows: 1, hookState: "success", hookAgeSec: 100, hookAgent: "claude" }), "parked")
 })
 
 test("bubbles per mood", () => {
@@ -91,13 +95,15 @@ test("sprite tracks: walking uses the directional rows", () => {
 
 test("world segments sort by virtual x and drop invalid screens", () => {
   const segs = M.worldSegments([
-    { name: "DP-2", x: 4000, width: 2560 },
-    { name: "HDMI-A-1", x: 0, width: 1440 },
-    { name: "DP-1", x: 1440, width: 2560 },
+    { name: "DP-2", x: 4000, y: 560, width: 2560, height: 1440 },
+    { name: "HDMI-A-1", x: 0, y: 0, width: 1440, height: 2560 },
+    { name: "DP-1", x: 1440, y: 560, width: 2560, height: 1440 },
     { name: "", x: 9, width: 9 }, { name: "bad", x: NaN, width: 100 }
   ])
   assert.deepEqual(segs.map(s => s.name), ["HDMI-A-1", "DP-1", "DP-2"])
-  assert.equal(M.segmentByName(segs, "DP-1").x, 1440)
+  assert.deepEqual(M.segmentByName(segs, "DP-1"), {
+    name: "DP-1", x: 1440, y: 560, w: 2560, h: 1440
+  })
   assert.equal(M.segmentByName(segs, "nope"), null)
 })
 
@@ -115,28 +121,31 @@ test("travel plans scale with real distance and clamp", () => {
 })
 
 test("talk commands: claude adapter, others fall back", () => {
-  const fresh = M.buildTalkCommand("claude", "hi", "", "Be the chief.")
+  const fresh = M.buildTalkCommand("claude", "hi", "", "Be the chief.", "You stand on DP-1.")
   assert.equal(fresh[0], "claude")
   assert.ok(!fresh.includes("--resume"))
   // claude carries the standing instructions as a system prompt on every
   // call — first and resumed alike — and the order itself stays clean.
-  assert.ok(fresh.includes("hi") && !fresh.some(a => a.includes("Order:")))
+  assert.ok(fresh.includes("You stand on DP-1.\n\nOrder: hi"))
+  assert.deepEqual(fresh.slice(fresh.indexOf("--permission-mode"), fresh.indexOf("--permission-mode") + 2),
+    ["--permission-mode", "auto"])
   assert.equal(fresh[fresh.indexOf("--append-system-prompt") + 1], "Be the chief.")
-  const resumed = M.buildTalkCommand("claude", "hi", "abc-123", "Be the chief.")
+  const resumed = M.buildTalkCommand("claude", "hi", "abc-123", "Be the chief.", "You stand on DP-2.")
   assert.ok(resumed.includes("--resume") && resumed.includes("abc-123"))
-  assert.ok(resumed.indexOf("--resume") < resumed.indexOf("hi"))
+  assert.ok(resumed.indexOf("--resume") < resumed.indexOf("You stand on DP-2.\n\nOrder: hi"))
   assert.ok(resumed.includes("--append-system-prompt"))
   assert.ok(!M.buildTalkCommand("claude", "hi", "", "").includes("--append-system-prompt"))
   // agents without a system-prompt flag get it folded into the first order,
   // and only the first: a resumed session already heard it.
-  const oc = M.buildTalkCommand("opencode", "hi", "", "Be the chief.")
-  assert.ok(oc[oc.length - 1] === "Be the chief.\n\nOrder: hi")
-  const ocRes = M.buildTalkCommand("opencode", "hi", "ses_1", "Be the chief.")
-  assert.equal(ocRes[ocRes.length - 1], "hi")
+  const oc = M.buildTalkCommand("opencode", "hi", "", "Be the chief.", "You stand on DP-1.")
+  assert.equal(oc[oc.length - 1], "Be the chief.\n\nYou stand on DP-1.\n\nOrder: hi")
+  const ocRes = M.buildTalkCommand("opencode", "hi", "ses_1", "Be the chief.", "You stand on DP-2.")
+  assert.equal(ocRes[ocRes.length - 1], "You stand on DP-2.\n\nOrder: hi")
   const cx = M.buildTalkCommand("codex", "hi", "", "Be the chief.")
   assert.ok(cx[cx.length - 1].startsWith("Be the chief."))
   assert.equal(M.buildTalkCommand("crush", "hi", "", ""), null)
-  assert.equal(M.buildConsoleResume("claude", "abc")[3], "--resume")
+  assert.deepEqual(M.buildConsoleResume("claude", "abc"),
+    ["claude", "--permission-mode", "auto", "--resume", "abc"])
   assert.equal(M.buildConsoleResume("claude", ""), null)
 })
 
@@ -162,10 +171,12 @@ test("opencode adapter: real sampled lines", () => {
   assert.deepEqual(t, { kind: "text", text: "OK" })
   const syn = M.parseTalkLine("opencode", '{"type":"text","sessionID":"s","part":{"type":"text","synthetic":true,"text":"Continue if you have next steps"}}')
   assert.equal(syn, null)
-  const r = M.parseTalkLine("opencode", '{"type":"step_finish","timestamp":1787353823764,"sessionID":"ses_fd9694ca2ffeuvzR9cc5KewVK9"}')
-  assert.deepEqual(r, { kind: "maybe_end", sessionId: "ses_fd9694ca2ffeuvzR9cc5KewVK9" })
+  const r = M.parseTalkLine("opencode", '{"type":"step_finish","timestamp":1787353823764,"sessionID":"ses_fd9694ca2ffeuvzR9cc5KewVK9","part":{"type":"step-finish","reason":"tool-calls"}}')
+  assert.deepEqual(r, { kind: "session", sessionId: "ses_fd9694ca2ffeuvzR9cc5KewVK9" })
+  const finalStep = M.parseTalkLine("opencode", '{"type":"step_finish","sessionID":"ses_fd9694ca2ffeuvzR9cc5KewVK9","part":{"type":"step-finish","reason":"stop"}}')
+  assert.deepEqual(finalStep, r, "the process exit, not a heuristic delay, ends the turn")
   const argv = M.buildTalkCommand("opencode", "hi", "ses_x")
-  assert.deepEqual(argv, ["opencode", "run", "--format", "json", "-s", "ses_x", "hi"])
+  assert.deepEqual(argv, ["opencode", "run", "--auto", "--format", "json", "-s", "ses_x", "hi"])
   // The TUI takes --session; the note that said otherwise was wrong, and the
   // console opened empty because of it.
   assert.deepEqual(M.buildConsoleResume("opencode", "ses_x"), ["opencode", "--auto", "--session", "ses_x"])
@@ -181,10 +192,11 @@ test("codex adapter: real sampled lines", () => {
   const fail = M.parseTalkLine("codex", '{"type":"turn.failed","error":{"message":"boom"}}')
   assert.deepEqual(fail, { kind: "result", ok: false, text: "boom", sessionId: "" })
   const fresh = M.buildTalkCommand("codex", "hi", "")
-  assert.deepEqual(fresh, ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--json", "hi"])
+  assert.deepEqual(fresh, ["codex", "exec", "--approve-for-me", "--skip-git-repo-check", "--json", "hi"])
   const res = M.buildTalkCommand("codex", "hi", "t-1")
-  assert.deepEqual(res.slice(0, 4), ["codex", "exec", "resume", "t-1"])
-  assert.deepEqual(M.buildConsoleResume("codex", "t-1"), ["codex", "resume", "t-1", "--dangerously-bypass-approvals-and-sandbox"])
+  assert.deepEqual(res,
+    ["codex", "exec", "--approve-for-me", "--skip-git-repo-check", "--json", "resume", "t-1", "hi"])
+  assert.deepEqual(M.buildConsoleResume("codex", "t-1"), ["codex", "resume", "t-1", "--approve-for-me"])
 })
 
 test("sleepRow routes the sleeping mood to a custom atlas row", () => {
@@ -221,7 +233,43 @@ test("contrastSafe lifts a tint until it clears the floor", () => {
   // light desktop pushes the other way
   const darkened = M.contrastSafe({ r: 0.85, g: 0.85, b: 0.85 }, white, 4.5)
   assert.ok(darkened.r < 0.85)
+  // A perceptual mid-tone needs black, not white. A 50% luminance split
+  // chose the wrong endpoint here and stopped below its own contrast floor.
+  const mid = { r: 0x77 / 255, g: 0x77 / 255, b: 0x77 / 255 }
+  assert.ok(M.contrastRatio(white, mid) < 4.5)
+  assert.ok(M.contrastRatio(black, mid) >= 4.5)
+  const corrected = M.contrastSafe(mid, mid, 4.5)
+  assert.ok(corrected.r < mid.r)
+  assert.ok(M.contrastRatio(corrected, mid) >= 4.5)
+  for (let level = 0; level <= 1; level += 0.05) {
+    const background = { r: level, g: level, b: level }
+    for (const tint of [
+      { r: level, g: level, b: level },
+      { r: 0.72, g: 0.18, b: 0.12 },
+      { r: 0.1, g: 0.55, b: 0.8 },
+    ]) {
+      const before = M.contrastRatio(tint, background)
+      const result = M.contrastSafe(tint, background, 4.5)
+      if (before >= 4.5) assert.deepEqual(result, tint, "an already-safe tint is unchanged")
+      else assert.ok(M.contrastRatio(result, background) >= 4.5 - 1e-9,
+        `contrast floor missed at grey ${level.toFixed(2)}`)
+    }
+  }
+  assert.deepEqual(M.contrastSafe(mid, mid, 7), black,
+    "an unreachable floor returns the better endpoint")
   assert.equal(M.contrastRatio(white, black).toFixed(0), "21")
+})
+
+test("the live tint compensates for Qt's grayscale colorization", () => {
+  const dark = { r: 0.18, g: 0.20, b: 0.24 }
+  const light = { r: 1, g: 1, b: 1 }
+  const accent = { r: 0.5, g: 0.63, b: 0.76 }
+  assert.ok(M.contrastRatio(M.liveTintColor(accent, dark), dark) >= 12 - 1e-9)
+  assert.ok(M.liveTintBrightness(dark, 0.7) > 0)
+  assert.equal(M.liveTintBrightness(light, 0.7), 0,
+    "blackward tinting must not crush the source shadows")
+  assert.equal(M.liveTintBrightness(dark, 0), 0)
+  assert.equal(M.liveTintBrightness(dark, "nope"), 0)
 })
 
 test("tintStrength reads true/false/number the same everywhere", () => {
@@ -238,13 +286,17 @@ test("isThemeableSpec accepts a window object and rejects nonsense", () => {
   assert.equal(M.isThemeableSpec({}), true)
   assert.equal(M.isThemeableSpec({ hueMin: "x" }), false)
   assert.equal(M.isThemeableSpec({ hueMin: -5 }), false)
+  assert.equal(M.isThemeableSpec({ hueMin: 40, hueMax: 361 }), false)
+  assert.equal(M.isThemeableSpec({ hueMin: 180, hueMax: 40 }), false)
+  assert.equal(M.isThemeableSpec({ satMin: 101 }), false)
+  assert.equal(M.isThemeableSpec([]), false)
   assert.equal(M.isThemeableSpec(true), false)
   assert.equal(M.isThemeableSpec(null), false)
 })
 
-test("opencode: a finished step is a maybe, not a verdict", () => {
+test("opencode: a finished step keeps the session but is not a verdict", () => {
   const m = M.parseTalkLine("opencode", '{"type":"step_finish","sessionID":"ses_1"}')
-  assert.deepEqual(m, { kind: "maybe_end", sessionId: "ses_1" })
+  assert.deepEqual(m, { kind: "session", sessionId: "ses_1" })
   const s = M.parseTalkLine("opencode", '{"type":"step_start","sessionID":"ses_1","part":{"type":"step-start"}}')
   assert.deepEqual(s, { kind: "session", sessionId: "ses_1" })
 })
@@ -262,20 +314,6 @@ test("dispatchers are dispatcher expressions, not bare words", () => {
   assert.equal(M.dispatchFocusMonitor("DP-1"), 'hl.dsp.focus({monitor="DP-1"})')
   assert.equal(M.dispatchExec("[workspace special:scratchpad silent] foo"),
     'hl.dsp.exec_cmd("[workspace special:scratchpad silent] foo")')
-})
-
-test("console placement sits above the chief and stays on its screen", () => {
-  const seg = { name: "DP-1", x: 1440, w: 2560 }
-  const p = M.consolePlacement(seg, 1280, 1440, { width: 1000, height: 560 }, 24)
-  assert.equal(p.x, 1440 + 1280 - 500)
-  assert.equal(p.y, 1440 - 560 - 24)
-  // hard against the left edge: clamped, never off-screen
-  assert.equal(M.consolePlacement(seg, 10, 1440, { width: 1000, height: 560 }, 24).x, 1464)
-  // hard against the right edge
-  assert.equal(M.consolePlacement(seg, 2550, 1440, { width: 1000, height: 560 }, 24).x, 1440 + 2560 - 1000 - 24)
-  assert.equal(M.consolePlacement(null, 0, 0, {}, 0), null)
-  assert.equal(M.placementRule(p), "float; size 1000 560; move 2220 856; ")
-  assert.equal(M.placementRule(null), "")
 })
 
 test("activities are read defensively and picked at odds", () => {
@@ -465,11 +503,12 @@ test("a monitor name cannot break out of a Lua dispatcher", () => {
 test("a short performance is repeated so it lasts long enough to notice", () => {
   // Three and a half seconds in the corner of a screen is a performance
   // nobody ever catches. Short rows go round more than once.
-  assert.equal(M.activityRepeats({}, 9000, 3400), 3)
-  assert.equal(M.activityRepeats({}, 9000, 9000), 1)
-  assert.equal(M.activityRepeats({}, 9000, 30000), 1, "a long row is never cut short")
-  assert.equal(M.activityRepeats({}, 9000, 100), 4, "and never repeats forever")
-  assert.equal(M.activityRepeats({}, 9000, 0), 1)
+  assert.equal(M.activityRepeats(9000, 3400), 3)
+  assert.equal(M.activityRepeats(9000, 7000), 2, "a short row clears the target instead of rounding down")
+  assert.equal(M.activityRepeats(9000, 9000), 1)
+  assert.equal(M.activityRepeats(9000, 30000), 1, "a long row is never cut short")
+  assert.equal(M.activityRepeats(9000, 100), 4, "and never repeats forever")
+  assert.equal(M.activityRepeats(9000, 0), 1)
 })
 
 test("markdown the agent sends anyway becomes prose", () => {
@@ -491,13 +530,6 @@ test("an answer stays up for as long as it takes to read", () => {
   assert.equal(M.readingTimeMs(""), 4000, "even an empty answer gets a glance")
   assert.ok(M.readingTimeMs("x".repeat(200)) > M.readingTimeMs("x".repeat(50)), "longer text, longer stay")
   assert.equal(M.readingTimeMs("x".repeat(100000)), 45000, "but never forever")
-})
-
-test("a runner that stumbles at once is tried once more", () => {
-  assert.equal(M.shouldRetryTalk(800, false, false), true, "silent and immediate: a stumble")
-  assert.equal(M.shouldRetryTalk(800, true, false), false, "it said something: a real turn")
-  assert.equal(M.shouldRetryTalk(20000, false, false), false, "it took its time: a real turn")
-  assert.equal(M.shouldRetryTalk(800, false, true), false, "never more than once")
 })
 
 test("a themed sheet is redrawn when the artwork changes, not only the theme", () => {
@@ -523,25 +555,12 @@ test("the artist may recommend a size, the person overrules it", () => {
   assert.equal(M.resolvePetSize(1, 0), 32)
 })
 
-test("a dissolve is only worth having where there is time for one", () => {
-  // A walk cycle changes frames every seventh of a second; smearing those
-  // together turns a gait into mush, so below a quarter second there is no
-  // dissolve at all. A performance holds a pose for over a second and gets
-  // the full quarter-second blend.
-  assert.equal(M.crossfadeMs(140), 0, "a walking frame stays crisp")
-  assert.equal(M.crossfadeMs(249), 0)
-  assert.ok(M.crossfadeMs(250) > 0, "a held frame gets a dissolve")
-  assert.equal(M.crossfadeMs(1350), 260, "a performance gets the full blend")
-  assert.equal(M.crossfadeMs(9000), 260, "which never grows past a quarter second")
-  assert.equal(M.crossfadeMs(undefined), 0)
-})
-
 test("a performance long enough on its own is told once, not looped", () => {
   // The repeat exists for pets whose rows are too short to notice. Once a
   // row lasts ten seconds by itself, telling it three times over is worse
   // than telling it once.
-  assert.equal(M.activityRepeats({}, 9000, 10500), 1)
-  assert.equal(M.activityRepeats({}, 9000, 3400), 3, "and still helps a short one")
+  assert.equal(M.activityRepeats(9000, 10500), 1)
+  assert.equal(M.activityRepeats(9000, 3400), 3, "and still helps a short one")
 })
 
 test("a performance keeps the hold times it was measured with", () => {
@@ -551,7 +570,7 @@ test("a performance keeps the hold times it was measured with", () => {
   const [a] = M.readActivities([{ name: "balloon", row: 9, frames: 6, holds: [1639, 1520, 1788, 1594, 1345, 2614] }], 16)
   assert.deepEqual(a.holds, [1639, 1520, 1788, 1594, 1345, 2614])
   assert.equal(M.activityDuration(a, 560), 10500)
-  assert.equal(M.activityRepeats(a, 9000, M.activityDuration(a, 560)), 1, "long enough to tell once")
+  assert.equal(M.activityRepeats(9000, M.activityDuration(a, 560)), 1, "long enough to tell once")
 
   // A pet that names no holds still works, one frame at a time.
   const [b] = M.readActivities([{ name: "x", row: 9, frames: 4 }], 16)
@@ -700,24 +719,31 @@ test("an artist decides what a resting creature may wear", () => {
   assert.deepEqual(M.readFaceList(null, 3, 3), [])
 })
 
-test("the console shares whichever workspace Omarchy's own console uses", () => {
-  // Omarchy presents a special workspace as a Quake console — dimmed, half a
-  // screen, seeded with your default agent the first time it drops. Which
-  // workspace that is has moved once already and may move again, so it is
-  // read out of the file that defines it rather than guessed at.
-  const today = 'local seed = "[workspace special:scratchpad silent] omarchy-agent"'
-  assert.equal(M.consoleWorkspace(today), "scratchpad")
-
-  // If the console is given a workspace of its own, the chief follows it
-  // there without anybody editing anything.
-  const later = 'local seed = "[workspace special:qconsole silent] omarchy-agent"'
-  assert.equal(M.consoleWorkspace(later), "qconsole")
-
-  // No such file, or nothing recognisable in it: the scratchpad, as before.
-  assert.equal(M.consoleWorkspace("", ""), "scratchpad")
-  assert.equal(M.consoleWorkspace(null), "scratchpad")
-  assert.equal(M.consoleWorkspace("nothing to see here"), "scratchpad")
-  assert.equal(M.consoleWorkspace("", "somewhere-else"), "somewhere-else")
+test("interactive console commands keep the selected agent", () => {
+  // Union of Omarchy 4.0's visible matrix and the post-4.0 matrix. Gemini is
+  // intentionally retained for 4.0; Antigravity and Ori are their own agents.
+  const matrix = {
+    pi:       { open: ["pi"], order: ["pi", "inspect"] },
+    omp:      { open: ["omp", "--auto-approve"], order: ["omp", "--auto-approve", "--", "inspect"] },
+    opencode: { open: ["opencode", "--auto"], order: ["opencode", "--auto", "--prompt", "inspect"] },
+    ori:      { open: ["ori", "code"], order: ["ori", "code", "--prompt", "inspect"] },
+    claude:   { open: ["claude", "--permission-mode", "auto"], order: ["claude", "--permission-mode", "auto", "--", "inspect"] },
+    codex:    { open: ["codex", "--approve-for-me"], order: ["codex", "--approve-for-me", "--", "inspect"] },
+    grok:     { open: ["grok", "--permission-mode", "bypassPermissions"], order: ["grok", "--permission-mode", "bypassPermissions", "--", "inspect"] },
+    gemini:   { open: ["gemini", "--yolo"], order: ["gemini", "--yolo", "--prompt-interactive", "inspect"] },
+    agy:      { open: ["agy", "--dangerously-skip-permissions"], order: ["agy", "--dangerously-skip-permissions", "--prompt-interactive", "inspect"] },
+    copilot:  { open: ["copilot", "--allow-all"], order: ["copilot", "--allow-all", "--interactive", "inspect"] },
+    crush:    { open: ["crush", "--yolo"], order: ["crush", "run", "inspect"] },
+  }
+  for (const [id, command] of Object.entries(matrix)) {
+    assert.deepEqual(M.buildConsoleCommand(id, ""), command.open, id + " opens interactively")
+    assert.deepEqual(M.buildConsoleCommand(id, "inspect"), command.order, id + " receives an order")
+    assert.equal(M.canOpenConsole(id), true, id + " is a valid explicit override")
+  }
+  assert.equal(M.buildConsoleCommand("unknown", "inspect"), null,
+    "an unsupported selection must not silently launch the desktop default")
+  assert.equal(M.canOpenConsole("unknown"), false)
+  assert.equal(M.canOpenConsole(""), false)
 })
 
 test("a conversation outlives the shell, and belongs to one agent", () => {
@@ -732,6 +758,10 @@ test("a conversation outlives the shell, and belongs to one agent", () => {
   // switching back and forth loses neither.
   assert.deepEqual(M.readSessions({ claude: "abc", codex: "def" }), { claude: "abc", codex: "def" })
   assert.deepEqual(M.readSessions({ claude: "abc", codex: "", "": "x", n: 5 }), { claude: "abc" })
+  assert.deepEqual(M.readSessions({ "../claude": "abc", claude: "bad session", codex: "x".repeat(257) }), {})
+  assert.equal(M.safeSessionId("ses_fd9694ca2ffeuvzR9cc5KewVK9"), true)
+  assert.equal(M.safeSessionId("01a02698-aab4-7562-8610-2835fd4f8cb1"), true)
+  assert.equal(M.safeSessionId("bad session"), false)
   assert.deepEqual(M.readSessions(null), {})
   assert.deepEqual(M.readSessions([1, 2]), {})
 })
@@ -743,8 +773,8 @@ test("the bubble says what the agent is doing, in its words where it has them", 
   assert.deepEqual(M.parseTalkLine("claude", claudeTool), { kind: "doing", text: "Read notes.txt" })
   // Without a description of its own, one is built from what matters.
   const claudeRead = JSON.stringify({ type: "assistant", message: { content: [
-    { type: "tool_use", name: "Read", input: { file_path: "/home/x/projects/omarchief/keystone/ChiefPanel.qml" } }] } })
-  assert.deepEqual(M.parseTalkLine("claude", claudeRead), { kind: "doing", text: "Reading ChiefPanel.qml" })
+    { type: "tool_use", name: "Read", input: { file_path: "/home/x/projects/omarchief/keystone/Service.qml" } }] } })
+  assert.deepEqual(M.parseTalkLine("claude", claudeRead), { kind: "doing", text: "Reading Service.qml" })
   // Words beat tools: a message that says something is text, not doing.
   const claudeBoth = JSON.stringify({ type: "assistant", message: { content: [
     { type: "text", text: "Done." }, { type: "tool_use", name: "Read", input: { file_path: "a" } }] } })
@@ -754,6 +784,14 @@ test("the bubble says what the agent is doing, in its words where it has them", 
   const codexRun = JSON.stringify({ type: "item.started", item: { id: "item_0", type: "command_execution",
     command: "/usr/bin/bash -lc 'wc -l data.txt'", aggregated_output: "", exit_code: null, status: "in_progress" } })
   assert.deepEqual(M.parseTalkLine("codex", codexRun), { kind: "doing", text: "Running wc -l data.txt" })
+
+  // Sampled from OpenCode 1.18's `run --format json`: completed tools are
+  // top-level tool_use records, not the older top-level `tool` spelling.
+  const opencodeRead = JSON.stringify({ type: "tool_use", sessionID: "ses_1", part: {
+    type: "tool", tool: "read", state: { status: "completed",
+      input: { file_path: "/home/x/projects/omarchief/keystone/Service.qml" } } } })
+  assert.deepEqual(M.parseTalkLine("opencode", opencodeRead),
+    { kind: "doing", text: "Reading Service.qml" })
 
   // A long command is cut, not wrapped across three bubble lines.
   assert.ok(M.describeTool("Bash", { command: "x".repeat(200) }).length < 60)
@@ -780,6 +818,12 @@ test("the console can resume every agent the bubble can talk to", () => {
   assert.deepEqual(M.buildConsoleResume("opencode", "ses_abc"), ["opencode", "--auto", "--session", "ses_abc"])
   assert.ok(M.buildConsoleResume("claude", "x")[0] === "claude")
   assert.ok(M.buildConsoleResume("codex", "x")[0] === "codex")
+  assert.deepEqual(M.buildConsoleResume("opencode", "ses_abc", "keep going"),
+    ["opencode", "--auto", "--session", "ses_abc", "--prompt", "keep going"])
+  assert.deepEqual(M.buildConsoleResume("claude", "x", "keep going").slice(-2),
+    ["--", "keep going"])
+  assert.deepEqual(M.buildConsoleResume("codex", "x", "keep going").slice(-2),
+    ["--", "keep going"])
   assert.equal(M.buildConsoleResume("opencode", ""), null, "nothing to resume")
   assert.equal(M.buildConsoleResume("gemini", "x"), null, "no adapter, no resume")
 })
@@ -799,14 +843,10 @@ test("a blink only interrupts the resting face", () => {
   assert.equal(M.mayBlink("idle", null, [1, 3]), false)
 })
 
-test("no rename ever swallowed the state directory", () => {
-  // "chief/" also lives inside "omarchief/", and the entry point is renamed
-  // on every release to get past the shell's QML cache. A blanket replace
-  // once rewrote every path to the state directory and nothing noticed for
-  // weeks, so the spelling is now asserted.
+test("the state directory spelling stays stable", () => {
   const root = new URL("..", import.meta.url).pathname
   const files = ["README.md", "CHANGELOG.md", "docs/pets.md", "docs/development.md",
-                 "tools/perform-check", "tools/coldstart-check", "tools/face-parade"]
+                 "tools/perform-check", "tools/coldstart-check"]
   const known = new Set(["omarchy", "omarchief"])
   for (const name of files) {
     let text
@@ -814,37 +854,147 @@ test("no rename ever swallowed the state directory", () => {
     const stray = [...new Set(text.match(/omar[a-z]+/g) || [])].filter(w => !known.has(w))
     assert.deepEqual(stray, [], name + " has a mangled name: " + stray)
   }
-  assert.ok(readFileSync(root + "tools/perform-check", "utf8").includes("omarchy/omarchief/status.json"),
+  const performance = readFileSync(root + "tools/perform-check", "utf8")
+  assert.match(performance, /XDG_STATE_HOME/,
+    "perform-check must honor the configured state home")
+  assert.match(performance,
+    /os\.path\.join\(state_home,\s*"omarchy",\s*"omarchief",\s*"status\.json"\)/,
     "perform-check must read the real status file")
 })
 
-test("a timer is asked for the way people ask", () => {
-  assert.equal(M.parseDuration("25m"), 1500)
-  assert.equal(M.parseDuration("90s"), 90)
-  assert.equal(M.parseDuration("10"), 600, "a bare number is minutes")
-  assert.equal(M.parseDuration("1h30m"), 5400)
-  assert.equal(M.parseDuration("1h"), 3600)
-  assert.equal(M.parseDuration("2,5m"), 150)
-  assert.equal(M.parseDuration("stop"), 0)
-  assert.equal(M.parseDuration("off"), 0)
-  assert.equal(M.parseDuration(""), null)
-  assert.equal(M.parseDuration("soon"), null)
-  assert.equal(M.parseDuration("99h"), 24 * 3600, "capped at a day")
+test("command toggles never turn a typo into an action", () => {
+  assert.equal(M.flagValue("", true), false)
+  assert.equal(M.flagValue("on", false), true)
+  assert.equal(M.flagValue("YES", false), true)
+  assert.equal(M.flagValue("off", true), false)
+  assert.equal(M.flagValue("0", true), false)
+  assert.equal(M.flagValue("onn", true), null)
 })
 
-test("the face shows the digit that matters", () => {
-  assert.equal(M.timerFace(25 * 60 * 1000), "25")
-  assert.equal(M.timerFace(61 * 1000), "2", "a minute and one second still reads as two")
-  assert.equal(M.timerFace(59 * 1000), "59")
-  assert.equal(M.timerFace(1 * 1000), "1")
-  assert.equal(M.timerFace(0), "")
-  assert.equal(M.timerFace(-5), "")
-  assert.equal(M.timerFace(90 * 60 * 1000), "1:30")
-  assert.equal(M.timerWords(25 * 60 * 1000), "25 min left")
-  assert.equal(M.timerWords(30 * 1000), "30s left")
-  assert.equal(M.timerWords(0), "")
+async function waitUntil(predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return true
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return predicate()
+}
+
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true } catch { return false }
+}
+
+async function closeOf(child, timeoutMs = 6000) {
+  return Promise.race([
+    new Promise((resolve) => child.once("close", (code, signal) => resolve({ code, signal }))),
+    new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ])
+}
+
+test("stopping an agent turn reaps even TERM-resistant descendants", async () => {
+  const work = mkdtempSync(join(tmpdir(), "omarchief-runner-"))
+  const pidPath = join(work, "agent.pid")
+  let childPid = 0
+  let runner
+  try {
+    const command = M.buildGuardedRunner(work, [
+      "bash", "-c",
+      'trap "" TERM; printf "%s" "$$" > "$1"; exec sleep 30',
+      "term-resistant-agent", pidPath,
+    ])
+    runner = spawn("bash", ["-lc", command], { stdio: "ignore" })
+    assert.equal(await waitUntil(() => existsSync(pidPath), 2000), true,
+      "the isolated agent never started")
+    childPid = Number(readFileSync(pidPath, "utf8"))
+    assert.ok(Number.isInteger(childPid) && childPid > 1 && processAlive(childPid))
+    runner.kill("SIGTERM")
+    const closed = await closeOf(runner)
+    assert.ok(closed, "the process-group wrapper did not stop within its grace period")
+    assert.equal(closed.code, 143)
+    assert.equal(await waitUntil(() => !processAlive(childPid), 1000), true,
+      "a TERM-resistant descendant survived Stop")
+  } finally {
+    if (runner && runner.exitCode === null) runner.kill("SIGKILL")
+    if (childPid > 1 && processAlive(childPid)) {
+      try { process.kill(-childPid, "SIGKILL") } catch {}
+    }
+    rmSync(work, { recursive: true, force: true })
+  }
 })
 
+test("plugin destruction reaps a turn after its direct wrapper is SIGKILLed", async () => {
+  const work = mkdtempSync(join(tmpdir(), "omarchief-destructor-"))
+  const pidPath = join(work, "agent.pid")
+  let childPid = 0
+  let runner
+  try {
+    const command = M.buildGuardedRunner(work, [
+      "bash", "-c",
+      'trap "" TERM; printf "%s" "$$" > "$1"; exec sleep 30',
+      "term-resistant-agent", pidPath,
+    ])
+    runner = spawn("bash", ["-lc", command], { stdio: "ignore" })
+    assert.equal(await waitUntil(() => existsSync(pidPath), 2000), true,
+      "the isolated agent never started")
+    childPid = Number(readFileSync(pidPath, "utf8"))
+    assert.ok(Number.isInteger(childPid) && childPid > 1 && processAlive(childPid))
+
+    runner.kill("SIGKILL")
+    const closed = await closeOf(runner)
+    assert.ok(closed, "the QProcess-owned wrapper did not die")
+    assert.equal(closed.signal, "SIGKILL")
+    assert.equal(await waitUntil(() => !processAlive(childPid), 4000), true,
+      "the guardian left an agent alive after plugin destruction")
+  } finally {
+    if (runner && runner.exitCode === null) runner.kill("SIGKILL")
+    if (childPid > 1 && processAlive(childPid)) {
+      try { process.kill(-childPid, "SIGKILL") } catch {}
+    }
+    rmSync(work, { recursive: true, force: true })
+  }
+})
+
+test("the process guardian preserves a natural workload exit code", async () => {
+  const command = M.buildGuardedRunner(tmpdir(), ["bash", "-c", "exit 7"])
+  const runner = spawn("bash", ["-lc", command], { stdio: "ignore" })
+  const closed = await closeOf(runner)
+  assert.ok(closed, "the process guardian did not return")
+  assert.equal(closed.code, 7)
+  assert.equal(closed.signal, null)
+})
+
+test("persisted booleans accept only real JSON booleans", () => {
+  assert.equal(M.boolValue(true, false), true)
+  assert.equal(M.boolValue(false, true), false)
+  assert.equal(M.boolValue("false", true), true, "a non-empty string is not coerced to true")
+  assert.equal(M.boolValue("true", false), false, "strings fall back instead of changing a setting")
+  assert.equal(M.boolValue(1, false), false)
+  assert.equal(M.boolValue(null, true), true)
+  assert.equal(M.boolValue(undefined, false), false)
+})
+
+test("ids and pet paths stay inside their declared boundary", () => {
+  assert.equal(M.safeId("side-view"), true)
+  assert.equal(M.safeId("../../escape"), false)
+  assert.equal(M.safeId("with space"), false)
+  for (const reserved of ["__proto__", "prototype", "constructor"])
+    assert.equal(M.safeId(reserved), false, `${reserved} must not become an object-map key`)
+  assert.equal(M.safeRelativePath("sprites/gritty.webp"), true)
+  assert.equal(M.safeRelativePath("../secret.webp"), false)
+  assert.equal(M.safeRelativePath("/tmp/secret.webp"), false)
+  assert.equal(M.safeRelativePath("a\\b.webp"), false)
+})
+
+test("external maps cannot replace object prototypes", () => {
+  const faces = JSON.parse('{"idle":[0,0],"__proto__":[1,1]}')
+  assert.deepEqual(M.readFaces(faces, 2, 2), { idle: [0, 0] })
+  const homes = JSON.parse('{"monitors":{"DP-1":42,"__proto__":7,"constructor":9}}')
+  assert.deepEqual(M.readHomes(homes), { "DP-1": 42 })
+  const sessions = JSON.parse('{"codex":"thread-1","__proto__":"thread-2"}')
+  assert.deepEqual(M.readSessions(sessions), { codex: "thread-1" })
+  assert.deepEqual(M.readHomes([]), {})
+  assert.deepEqual(M.readHomes({ monitors: [] }), {})
+})
 
 test("how often it looks up, said in words", () => {
   assert.equal(M.oftenName(0), "never")

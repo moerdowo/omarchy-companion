@@ -1,21 +1,21 @@
 # Bundled pets
 
-Three ship with the plugin. Pick one from **Who stands there** in the bar
+Two ship with the plugin. Pick one from **Companion** in the bar
 menu, or with `omarchy-shell omarchief pet <id>` — nothing needs copying,
 they are already here.
 
 | Id | What it is | Drawn at |
 |---|---|---|
-| `gritty` | A weathered machine cube on a cable, in profile. Nine drawn moods, a blink and a tongue, and a face plate that can carry a timer or a clock. The default. | 150 px |
-| `gritty-front` | The same cube, head on rather than in profile. One expression. | 150 px |
-| `quattro` | A rally car parked at the bottom of the screen, headlights on. Cut from a wallpaper Omarchy ships — see its `NOTICE`. | 130 px |
+| `gritty` | A weathered machine cube on a cable, in profile. Eight moods, four idle expressions, and a blink. The default. | 150 px |
+| `quattro` | The rally car from Omarchy's Tokyo Night wallpaper, cut out as one still pose and covered by its upstream MIT licence. | 130 px |
 
-All three sit where you put them: none has a walk cycle, so *Follow my
-focus* has nothing to offer them and the menu leaves it out. All three
+Both sit where you put them: neither has a walk cycle, so *Follow my
+focus* has nothing to offer them and the menu leaves it out. Both
 declare a `themeable` hue window, so they are repainted in your theme's
 accent whenever it changes, with the artist's shading and the cables left
-exactly as drawn. `mirror` lets them face the other way when they are on
-the right-hand side of a screen.
+exactly as drawn. Both profiles face into the screen: their release cells look
+right on the left-hand side, and `mirror` turns them left on the right-hand
+side.
 
 ## Your own
 
@@ -26,8 +26,8 @@ Drop a folder with a `pet.json` and its spritesheet into
 ```
 
 and it appears in the picker beside these. `~/.config/omapets/pets/<id>/`
-is read as well. The format, the coordinate system, and how a face plate is
-measured are in [../docs/pets.md](../docs/pets.md).
+is read as well. The format and coordinate system are in
+[../docs/pets.md](../docs/pets.md).
 
 ## How these sheets were made
 
@@ -38,7 +38,10 @@ animated atlas is assembled by
 source to one shared reference pose so the creature does not shrink in the
 rows where something tall rises above it.
 
-Both read the renders from `../tools/source/`, which are **not in this
-clone** — they are attached to each release. See
-[../tools/source/README.md](../tools/source/README.md) for the one command
-that puts them back.
+The separate release-source archive contains only the inputs for Gritty's
+face sheet and the high-resolution Quattro cutout; they extract into
+`../tools/source/`. See
+[../tools/source/README.md](../tools/source/README.md) for its exact contents,
+download command, and bundled-art build steps. `build-atlas.py` is a BYO-pet
+tool instead: pass it your own walk, idle, and activity renders as documented
+in [../docs/pets.md](../docs/pets.md).

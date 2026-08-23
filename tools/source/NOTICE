@@ -1,6 +1,18 @@
-MIT License
+Omarchief artwork source archive
 
-Copyright (c) 2026 Daven Niemann
+The gritty-*.png source renders are original work by Daven Niemann,
+Copyright (c) 2026 Daven Niemann.
+
+quattro.png is the high-resolution cutout used for the Quattro sprite. It is
+adapted from themes/tokyo-night/backgrounds/1-quattro.jpg in Omarchy v4.0.0:
+
+Copyright (c) David Heinemeier Hansson
+https://github.com/basecamp/omarchy
+https://github.com/basecamp/omarchy/blob/v4.0.0/themes/tokyo-night/backgrounds/1-quattro.jpg
+
+The original renders, the adaptation, and the upstream material are
+distributed under the following MIT terms. This NOTICE must remain in every
+copy of omarchief-artwork-sources.tar.gz.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +31,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Audi, quattro, Castrol, Michelin, and all other third-party names, logos, and
+marks remain the property of their respective owners. Their appearance in the
+upstream artwork does not imply endorsement of Omarchief.

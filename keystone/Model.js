@@ -2,7 +2,7 @@
 // (`node --test tests/`).
 //
 // The chief's whole inner life reduces to a handful of read-only inputs —
-// how much of the default agent's rate limits remain, whether agent windows
+// how much of the default agent's rate limits remain, whether console windows
 // exist, whether the Quake console is open, and what the agent hooks last
 // reported — and this file turns those into a mood and a behavior.
 // Everything visual stays in the QML.
@@ -29,7 +29,7 @@ function energyFromRecord(record) {
 // stop/error events written to status.json). A stale report is no report;
 // the freshness windows mirror the ecosystem's detect-agent rules, with a
 // short fuse for the transient celebrations.
-var HOOK_MAX_AGE = { success: 8, error: 60, working: 14400, waiting: 14400 }
+var HOOK_MAX_AGE = { success: 8, error: 60, working: 600, waiting: 600 }
 
 function freshHookState(hookState, hookAgeSec, hookAgent, defaultAgent) {
   if (!hookState || !(hookState in HOOK_MAX_AGE)) return ""
@@ -50,8 +50,8 @@ function resolveMood(inputs) {
   if (hook === "waiting") return "waiting"
   if (hook === "success") return "success"
   if (hook === "working") return "working"
-  if (inputs.agentWindows > 0 && inputs.consoleOpen) return "working"
-  if (inputs.agentWindows > 0) return "parked"
+  if (inputs.consoleWindows > 0 && inputs.consoleOpen) return "working"
+  if (inputs.consoleWindows > 0) return "parked"
   if (energy < 0.3) return "tired"
   return "idle"
 }
@@ -173,6 +173,7 @@ function readFaces(value, rows, columns) {
   var cols = spriteColumns(columns)
   var out = {}, any = false
   for (var key in value) {
+    if (!safeMapKey(key)) continue
     var at = value[key]
     if (!Array.isArray(at) || at.length < 2) continue
     var r = Number(at[0]), c = Number(at[1])
@@ -276,58 +277,23 @@ function mayBlink(mood, faces, blink) {
   return here[0] === rest[0] && here[1] === rest[1]
 }
 
-// ---------------------------------------------------------------- the timer
-//
-// A creature with a screen for a face may as well use it. "25m", "90s",
-// "1h30", "10" — the last meaning minutes, because that is what a bare
-// number means when somebody asks for a timer.
-function parseDuration(spec) {
-  var text = String(spec === undefined || spec === null ? "" : spec).trim().toLowerCase()
-  if (text === "") return null
-  if (text === "stop" || text === "off" || text === "cancel" || text === "0") return 0
-  var total = 0, saw = false
-  var re = /(\d+(?:[.,]\d+)?)\s*(h|m|s|min|sec|hours?|minutes?|seconds?)?/g
-  var m, tail = text.replace(/[\s]/g, "")
-  if (!/^[\d.,hms a-z]+$/.test(text)) return null
-  while ((m = re.exec(text)) !== null) {
-    var n = Number(String(m[1]).replace(",", "."))
-    if (!isFinite(n)) return null
-    var unit = m[2] || ""
-    var mult = unit.charAt(0) === "h" ? 3600 : unit.charAt(0) === "s" ? 1 : 60
-    total += n * mult
-    saw = true
-  }
-  if (!saw) return null
-  total = Math.round(total)
-  if (total <= 0) return 0
-  // A day is more than a creature standing at the edge of a screen can
-  // reasonably be asked to hold in its face.
-  return Math.min(total, 24 * 3600)
+// Command-line toggles are forgiving about familiar spellings, but never
+// guess at an unfamiliar value. A typo such as `theme onn` must not silently
+// turn a setting off.
+function flagValue(value, current) {
+  var text = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+  if (text === "") return !current
+  if (text === "on" || text === "true" || text === "1" || text === "yes") return true
+  if (text === "off" || text === "false" || text === "0" || text === "no") return false
+  return null
 }
 
-// What the face shows. Whole minutes while there is more than a minute
-// left, because two big digits read across a room and "24:59" does not;
-// seconds under it, where every one of them counts.
-function timerFace(msLeft) {
-  var left = Math.max(0, Math.ceil(Number(msLeft || 0) / 1000))
-  if (left <= 0) return ""
-  if (left < 60) return String(left)
-  if (left < 3600) return String(Math.ceil(left / 60))
-  var hours = Math.floor(left / 3600)
-  var mins = Math.ceil((left - hours * 3600) / 60)
-  if (mins === 60) return String(hours + 1) + "h"
-  return String(hours) + ":" + (mins < 10 ? "0" : "") + String(mins)
-}
-
-// The same thing said in words, for the bar and the tooltip.
-function timerWords(msLeft) {
-  var left = Math.max(0, Math.ceil(Number(msLeft || 0) / 1000))
-  if (left <= 0) return ""
-  if (left < 60) return left + "s left"
-  var mins = Math.ceil(left / 60)
-  if (mins < 60) return mins + " min left"
-  var hours = Math.floor(mins / 60)
-  return hours + "h " + (mins - hours * 60) + "m left"
+// Persisted JSON is less forgiving than a command line: only JSON booleans
+// are booleans. In particular, the string "false" must never become true
+// merely because JavaScript considers every non-empty string truthy.
+function boolValue(value, fallback) {
+  if (value === true || value === false) return value
+  return fallback === true
 }
 
 // How long it holds that look before going back to resting.
@@ -367,25 +333,9 @@ function readSessions(value) {
   var out = ({})
   for (var agent in value) {
     var id = value[agent]
-    if (typeof id === "string" && id !== "" && String(agent) !== "") out[String(agent)] = id
+    if (safeId(agent) && typeof id === "string" && safeSessionId(id)) out[String(agent)] = id
   }
   return out
-}
-
-// Which special workspace the console lives on.
-//
-// Omarchy presents one as a Quake console — dimmed, half a screen, seeded
-// with your default agent the first time it drops. Which workspace that is
-// has already moved once and may move again: it began as `scratchpad`, and
-// there is an open proposal to give the console its own `qconsole` so the
-// plain scratchpad stays plain. Rather than guess, read it out of Omarchy's
-// own file, where the seed line names the workspace it pins the agent to.
-function consoleWorkspace(qconsoleLua, fallback) {
-  var text = String(qconsoleLua || "")
-  var found = text.match(/special:([A-Za-z0-9_-]+)/)
-  if (found) return found[1]
-  var back = String(fallback || "")
-  return back !== "" ? back : "scratchpad"
 }
 
 function mirroredAt(px, screenWidth) {
@@ -422,10 +372,16 @@ function worldSegments(screens) {
   for (var i = 0; i < (screens ? screens.length : 0); i++) {
     var s = screens[i]
     if (!s || !s.name) continue
-    var x = Number(s.x)
-    var w = Number(s.width)
+    var x = Number(s.x), y = Number(s.y)
+    var w = Number(s.width), h = Number(s.height)
     if (!isFinite(x) || !isFinite(w) || w <= 0) continue
-    list.push({ name: String(s.name), x: x, w: w })
+    list.push({
+      name: String(s.name),
+      x: x,
+      y: isFinite(y) ? y : 0,
+      w: w,
+      h: isFinite(h) && h > 0 ? h : 0
+    })
   }
   list.sort(function(a, b) { return a.x - b.x })
   return list
@@ -474,42 +430,137 @@ function canTalkTo(agent) {
 // the same conversation at full length instead of in bubble-sized clips. The
 // other two have no such flag, so there the first order of a session carries
 // them inline, once.
-function buildTalkCommand(agent, order, sessionId, preamble) {
+function buildTalkCommand(agent, order, sessionId, preamble, runtimeContext) {
   var lead = String(preamble || "")
+  var context = String(runtimeContext || "")
+  var request = context === "" ? order : context + "\n\nOrder: " + order
   var prompt = sessionId || lead === "" || agent === "claude"
-    ? order : lead + "\n\nOrder: " + order
+    ? request : lead + "\n\n" + request
   if (agent === "claude") {
     var argv = ["claude", "-p"]
     if (sessionId) argv.push("--resume", sessionId)
-    argv.push(prompt, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose")
+    argv.push(prompt, "--permission-mode", "auto", "--output-format", "stream-json", "--verbose")
     if (lead !== "") argv.push("--append-system-prompt", lead)
     return argv
   }
   if (agent === "opencode") {
-    var oc = ["opencode", "run", "--format", "json"]
+    // `run` still observes OpenCode's permission rules. Omarchy launches its
+    // desktop agent with --auto; the unattended bubble must do the same or a
+    // tool request can wait forever in a process with no terminal to answer.
+    var oc = ["opencode", "run", "--auto", "--format", "json"]
     if (sessionId) oc.push("-s", sessionId)
     oc.push(prompt)
     return oc
   }
   if (agent === "codex") {
-    var cx = ["codex", "exec"]
+    // --approve-for-me belongs to `codex exec`, not its `resume` subcommand.
+    // Keeping the parent options before `resume` is required by Codex's CLI
+    // parser; placing them after the session id looks plausible but is rejected.
+    var cx = ["codex", "exec", "--approve-for-me", "--skip-git-repo-check", "--json"]
     if (sessionId) cx.push("resume", sessionId)
-    cx.push("--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--json", prompt)
+    cx.push(prompt)
     return cx
   }
   return null
 }
 
-function buildConsoleResume(agent, sessionId) {
+// Put a long-running child in its own process group, behind a guardian that is
+// not the QProcess-owned PID. Quickshell sends TERM when `running` becomes
+// false, but its Process destructor sends that direct PID SIGKILL; a trap in
+// the direct wrapper cannot see the latter. The orphaned guardian watches the
+// wrapper PID as well, so Stop, timeout, plugin reload, disable and removal all
+// converge on the same TERM -> short grace -> KILL cleanup.
+function buildGuardedRunner(cwd, argv) {
+  if (!Array.isArray(argv) || argv.length === 0) return ""
+  var quoted = []
+  for (var i = 0; i < argv.length; i++) quoted.push(shellQuote(argv[i]))
+  return "cd " + shellQuote(cwd) + " || exit 1; owner=$$; guard=; guard_ready=0;"
+    + " ready=$(mktemp /tmp/omarchief-guard.XXXXXX) || exit 1;"
+    + " wait_ready() { for ((ready_step=0; ready_step<200; ready_step++)); do"
+    + " [ -s \"$ready\" ] && return 0;"
+    + " [ -n \"$guard\" ] && kill -0 \"$guard\" 2>/dev/null || return 1;"
+    + " sleep 0.01; done; return 1; };"
+    + " stop_wrapper() { wrapper_code=$1; trap - TERM INT HUP;"
+    + " if [ \"$guard_ready\" -ne 1 ]; then wait_ready && guard_ready=1; fi;"
+    + " [ -n \"$guard\" ] && kill -TERM \"$guard\" 2>/dev/null || true;"
+    + " [ -n \"$guard\" ] && wait \"$guard\" 2>/dev/null || true;"
+    + " rm -f -- \"$ready\"; exit \"$wrapper_code\"; };"
+    + " trap 'stop_wrapper 143' TERM; trap 'stop_wrapper 130' INT;"
+    + " trap 'stop_wrapper 129' HUP;"
+    + " ( agent=; owner_watch=;"
+    + " terminate_group() { [ -n \"$agent\" ] || return 0;"
+    + " kill -TERM -- -\"$agent\" 2>/dev/null || true;"
+    + " for ((stop_step=0; stop_step<20; stop_step++)); do"
+    + " kill -0 -- -\"$agent\" 2>/dev/null || break; sleep 0.1; done;"
+    + " kill -KILL -- -\"$agent\" 2>/dev/null || true; };"
+    + " stop_guard() { guard_code=$1; trap - TERM INT HUP; terminate_group;"
+    + " [ -n \"$owner_watch\" ] && kill \"$owner_watch\" 2>/dev/null || true;"
+    + " [ -n \"$agent\" ] && wait \"$agent\" 2>/dev/null || true;"
+    + " rm -f -- \"$ready\"; exit \"$guard_code\"; };"
+    + " trap 'stop_guard 143' TERM; trap 'stop_guard 130' INT;"
+    + " trap 'stop_guard 129' HUP; printf 1 > \"$ready\";"
+    + " setsid " + quoted.join(" ") + " & agent=$!;"
+    + " tail --pid=\"$owner\" -f -s 0.1 /dev/null 2>/dev/null & owner_watch=$!;"
+    + " finished=; wait -n -p finished \"$agent\" \"$owner_watch\"; child_code=$?;"
+    + " if [ \"$finished\" = \"$owner_watch\" ]; then"
+    + " terminate_group; wait \"$agent\" 2>/dev/null || true;"
+    + " rm -f -- \"$ready\"; exit 143; fi;"
+    + " kill \"$owner_watch\" 2>/dev/null || true; wait \"$owner_watch\" 2>/dev/null || true;"
+    + " terminate_group; rm -f -- \"$ready\"; exit \"$child_code\" ) & guard=$!;"
+    + " if wait_ready; then guard_ready=1; else"
+    + " wait \"$guard\"; early_code=$?; rm -f -- \"$ready\"; exit \"$early_code\"; fi;"
+    + " rm -f -- \"$ready\"; wait \"$guard\"; code=$?; exit \"$code\""
+}
+
+function buildConsoleResume(agent, sessionId, prompt) {
+  var argv = null
   if (agent === "claude" && sessionId)
-    return ["claude", "--permission-mode", "bypassPermissions", "--resume", sessionId]
+    argv = ["claude", "--permission-mode", "auto", "--resume", sessionId]
   if (agent === "codex" && sessionId)
-    return ["codex", "resume", sessionId, "--dangerously-bypass-approvals-and-sandbox"]
+    argv = ["codex", "resume", sessionId, "--approve-for-me"]
   // `opencode --session <id>` opens the TUI on that conversation; `--auto`
   // is what omarchy-agent passes so it does not stop to ask.
   if (agent === "opencode" && sessionId)
-    return ["opencode", "--auto", "--session", sessionId]
-  return null
+    argv = ["opencode", "--auto", "--session", sessionId]
+  if (argv === null || String(prompt || "") === "") return argv
+  if (agent === "opencode") argv.push("--prompt", String(prompt))
+  else argv.push("--", String(prompt))
+  return argv
+}
+
+// Interactive launch arguments mirror omarchy-agent. Keeping the small map
+// here lets a plugin-specific agent remain the same agent when it escalates
+// to a terminal instead of silently falling back to the desktop default.
+function buildConsoleCommand(agent, prompt) {
+  var id = String(agent || "")
+  var text = String(prompt || "")
+  var argv = null
+  if (id === "opencode") argv = ["opencode", "--auto"]
+  else if (id === "gemini") argv = ["gemini", "--yolo"]
+  else if (id === "agy") argv = ["agy", "--dangerously-skip-permissions"]
+  else if (id === "copilot") argv = ["copilot", "--allow-all"]
+  else if (id === "crush") argv = text === "" ? ["crush", "--yolo"] : ["crush", "run", text]
+  else if (id === "claude") argv = ["claude", "--permission-mode", "auto"]
+  else if (id === "grok") argv = ["grok", "--permission-mode", "bypassPermissions"]
+  else if (id === "codex") argv = ["codex", "--approve-for-me"]
+  else if (id === "omp") argv = ["omp", "--auto-approve"]
+  else if (id === "ori") argv = ["ori", "code"]
+  else if (id === "pi") argv = ["pi"]
+  if (argv === null || text === "" || id === "crush") return argv
+  if (id === "opencode") argv.push("--prompt", text)
+  else if (id === "gemini" || id === "agy") argv.push("--prompt-interactive", text)
+  else if (id === "copilot") argv.push("--interactive", text)
+  else if (id === "ori") argv.push("--prompt", text)
+  else if (id === "claude" || id === "grok" || id === "codex" || id === "omp")
+    argv.push("--", text)
+  else argv.push(text)
+  return argv
+}
+
+// An explicit override is honest only when Omarchief knows how to launch it.
+// The desktop default does not need this gate: Omarchy remains its launcher.
+function canOpenConsole(agent) {
+  return buildConsoleCommand(String(agent || ""), "") !== null
 }
 
 // One NDJSON line of headless-agent output into what the bubble needs,
@@ -517,7 +568,7 @@ function buildConsoleResume(agent, sessionId) {
 // parses to null and is dropped.
 // What an agent is doing, said the way a person would say it. Agents
 // narrate their work as tool calls — read this file, run that command —
-// and a bubble that says "Reading ChiefPanel.qml" while the creature digs
+// and a bubble that says "Reading Service.qml" while the creature digs
 // is worth more than three dots. Claude writes a description of its own
 // for shell commands, which is better than anything derived; the rest is
 // built from the tool's name and the one argument that matters.
@@ -562,28 +613,27 @@ function parseTalkLine(agent, line) {
   return parseClaudeLine(line)
 }
 
-// opencode `run --format json` events. Sampled verbatim:
-//   {"type":"text","sessionID":"ses_fd9694…","part":{"type":"text","text":"OK",…}}
-//   {"type":"step_finish","timestamp":…,"sessionID":"ses_fd9694…",…}
-// The run process lingers after step_finish (session keep-alive, even
-// synthetic compaction notes), so step_finish is the turn's true end and
-// the caller must reap the process itself.
+// OpenCode `run --format json` events. Current releases emit completed tools
+// as top-level `tool_use` records and end the process when the session becomes
+// idle. A step_finish is deliberately not treated as the end of a turn: a
+// tool-calls step is followed by another step, and the process exit is the
+// authoritative boundary for both old and new streams.
 function parseOpencodeLine(line) {
   var d
   try { d = JSON.parse(String(line || "")) } catch (e) { return null }
   if (!d || typeof d !== "object") return null
   if (d.type === "text" && d.part && d.part.type === "text" && d.part.text && !d.part.synthetic)
     return { kind: "text", text: String(d.part.text) }
-  // A step is not a turn: a single order can run eleven of them, and the
-  // run process keeps its session alive long after the last one. So a
-  // finished step only means "this could be the end" — silence decides.
+  // A step is not a turn: a single order can run many of them. Keep the
+  // session id, count the event as progress, and wait for OpenCode itself.
   if (d.type === "step_finish")
-    return { kind: "maybe_end", sessionId: String(d.sessionID || "") }
+    return { kind: "session", sessionId: String(d.sessionID || "") }
   if (d.type === "step_start" && d.sessionID)
     return { kind: "session", sessionId: String(d.sessionID) }
   // A tool part carries the tool's name and its input; what it is doing is
   // the title when the runner wrote one, else derived from the input.
-  if (d.type === "tool" && d.part && typeof d.part === "object") {
+  if ((d.type === "tool_use" || d.type === "tool")
+      && d.part && typeof d.part === "object") {
     var st = d.part.state && typeof d.part.state === "object" ? d.part.state : {}
     var title = st.title ? String(st.title) : describeTool(opencodeToolName(d.part.tool), st.input)
     if (title !== "") return { kind: "doing", text: title }
@@ -708,15 +758,6 @@ function shapeBubbleText(text, maxChars) {
 function readingTimeMs(text) {
   var n = String(text || "").length
   return Math.max(4000, Math.min(45000, 3500 + n * 60))
-}
-
-// A runner that exits at once without a word has not refused the order, it
-// has stumbled: a dropped connection, a model that returned nothing. One
-// more try costs a second and catches most of those. Anything that said
-// something, or took its time, was a real turn and is not repeated.
-function shouldRetryTalk(elapsedMs, sawOutput, retried) {
-  var t = Number(elapsedMs)
-  return !retried && !sawOutput && isFinite(t) && t >= 0 && t < 4000
 }
 
 // The stamp left beside a themed sheet names the accent it was drawn for,
@@ -894,7 +935,7 @@ function mayPlayActivity(state) {
 // following the WCAG relative-luminance definition.
 
 function srgbToLinear(v) {
-  return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
 }
 
 function relLuminance(c) {
@@ -911,17 +952,49 @@ function mix(c, target, t) {
   return { r: c.r + (target.r - c.r) * t, g: c.g + (target.g - c.g) * t, b: c.b + (target.b - c.b) * t }
 }
 
-// Walk the tint toward white (on a dark desktop) or black (on a light one)
-// until it clears `minRatio`, then stop — the least change that is legible.
+// Walk the tint toward whichever endpoint can contrast most with this exact
+// background. Perceptual mid-tones are not split at 50% luminance: #777, for
+// example, needs black even though it still looks like a dark colour.
+// Binary search stops at the least change that clears `minRatio`.
 function contrastSafe(color, background, minRatio) {
   var floor = isFinite(Number(minRatio)) && Number(minRatio) > 1 ? Number(minRatio) : 4.5
-  var target = relLuminance(background) < 0.5 ? { r: 1, g: 1, b: 1 } : { r: 0, g: 0, b: 0 }
   var out = { r: color.r, g: color.g, b: color.b }
-  for (var i = 0; i < 20; i++) {
-    if (contrastRatio(out, background) >= floor) return out
-    out = mix(out, target, 0.12)
+  if (contrastRatio(out, background) >= floor) return out
+
+  var black = { r: 0, g: 0, b: 0 }
+  var white = { r: 1, g: 1, b: 1 }
+  var target = contrastRatio(white, background) >= contrastRatio(black, background)
+    ? white : black
+  if (contrastRatio(target, background) < floor) return target
+
+  var lo = 0, hi = 1
+  for (var i = 0; i < 24; i++) {
+    var mid = (lo + hi) / 2
+    if (contrastRatio(mix(out, target, mid), background) >= floor) hi = mid
+    else lo = mid
   }
-  return out
+  return mix(out, target, hi)
+}
+
+// MultiEffect does not put `colorizationColor` on screen unchanged: it first
+// multiplies that colour by every source pixel's grayscale. A target that only
+// just clears 4.5:1 is therefore too weak after the real shader, so leave it
+// more headroom. On dark themes a measured lift keeps the body legible; on
+// light themes the blackward target already clears the floor and a negative
+// brightness would crush the artwork's shadows. The lossless per-pixel redraw
+// remains the durable path.
+function liveTintColor(color, background) {
+  return contrastSafe(color, background, 12)
+}
+
+function liveTintBrightness(background, strength) {
+  var s = Number(strength)
+  if (!isFinite(s) || s <= 0) return 0
+  s = Math.min(1, s)
+  var black = { r: 0, g: 0, b: 0 }
+  var white = { r: 1, g: 1, b: 1 }
+  var towardWhite = contrastRatio(white, background) >= contrastRatio(black, background)
+  return towardWhite ? s * 0.49 : 0
 }
 
 // pet.json and omarchief.json both spell tinting as true/false/0..1; this is
@@ -948,13 +1021,16 @@ function tintStrength(value, fallback) {
 // pet.json may spell `themeable` as true or as a window object; this keeps
 // the two spellings honest in one place.
 function isThemeableSpec(value) {
-  if (!value || typeof value !== "object") return false
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
   var keys = ["hueMin", "hueMax", "satMin"]
   for (var i = 0; i < keys.length; i++) {
     if (value[keys[i]] === undefined) continue
     var n = Number(value[keys[i]])
-    if (!isFinite(n) || n < 0) return false
+    var max = keys[i] === "satMin" ? 100 : 360
+    if (!isFinite(n) || n < 0 || n > max) return false
   }
+  if (value.hueMin !== undefined && value.hueMax !== undefined
+      && Number(value.hueMin) > Number(value.hueMax)) return false
   return true
 }
 
@@ -977,30 +1053,35 @@ function luaStr(value) {
     .replace(/\r/g, "") + '"'
 }
 
+// IDs cross process, path and config boundaries. Keep the shared rule small
+// and identical everywhere instead of maintaining subtly different regexes.
+function safeMapKey(value) {
+  var key = String(value || "")
+  return key !== "__proto__" && key !== "prototype" && key !== "constructor"
+}
+
+function safeId(value) {
+  var id = String(value || "")
+  return safeMapKey(id) && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)
+}
+
+function safeSessionId(value) {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(String(value || ""))
+}
+
+// A pet may keep its sheet in a subfolder, but never outside its own folder.
+function safeRelativePath(value) {
+  var path = String(value || "")
+  if (path === "" || path.charAt(0) === "/" || path.indexOf("\\") !== -1) return false
+  var parts = path.split("/")
+  for (var i = 0; i < parts.length; i++)
+    if (parts[i] === "" || parts[i] === "." || parts[i] === "..") return false
+  return true
+}
+
 function dispatchExec(command) { return "hl.dsp.exec_cmd(" + luaStr(command) + ")" }
 function dispatchToggleSpecial(name) { return "hl.dsp.workspace.toggle_special(" + luaStr(name) + ")" }
 function dispatchFocusMonitor(name) { return "hl.dsp.focus({monitor=" + luaStr(name) + "})" }
-
-
-// Where a window should open so it sits above the creature rather than
-// wherever the compositor felt like putting it. Coordinates are virtual
-// desktop pixels; the window is kept fully on its own screen.
-function consolePlacement(segment, localX, screenHeight, size, margin) {
-  if (!segment) return null
-  var w = Math.max(200, Math.round(size && size.width ? size.width : 1000))
-  var h = Math.max(150, Math.round(size && size.height ? size.height : 560))
-  var gap = isFinite(Number(margin)) ? Number(margin) : 24
-  var x = segment.x + Math.round(Number(localX || segment.w / 2)) - Math.round(w / 2)
-  x = Math.max(segment.x + gap, Math.min(segment.x + segment.w - w - gap, x))
-  var y = Math.max(gap, Math.round(Number(screenHeight || 0) - h - gap))
-  return { x: Math.round(x), y: y, width: w, height: h }
-}
-
-function placementRule(placement) {
-  if (!placement) return ""
-  return "float; size " + placement.width + " " + placement.height
-    + "; move " + placement.x + " " + placement.y + "; "
-}
 
 
 // Idle activities live in rows past the standard atlas and are named by
@@ -1043,7 +1124,8 @@ function readActivities(value, rows) {
         holds.push(isFinite(h) && h > 0 ? Math.min(10000, Math.round(h)) : 0)
       }
     }
-    out.push({ name: String(a.name || ("row" + row)), row: Math.floor(row), frames: frames, holds: holds })
+    var name = String(a.name || ("row" + row)).replace(/[\r\n,\t]+/g, " ").trim().slice(0, 48)
+    out.push({ name: name || ("row" + row), row: Math.floor(row), frames: frames, holds: holds })
   }
   return out
 }
@@ -1068,23 +1150,11 @@ function pickActivity(rand, activities, chance, recent) {
 // ever sees. Short rows are played more than once so the whole thing lasts
 // long enough to be noticed and understood, without slowing the drawing
 // down into a slideshow.
-// Six drawn poses with hard cuts between them is a slideshow, however
-// slowly it runs. A dissolve makes them read as one continuous motion —
-// but only where there is time for one: a walk cycle changes frames every
-// seventh of a second, and smearing those together turns a gait into mush.
-// So the dissolve is a fraction of the hold, and below a quarter second
-// there is none at all.
-function crossfadeMs(holdMs) {
-  var h = Number(holdMs)
-  if (!isFinite(h) || h < 250) return 0
-  return Math.max(60, Math.min(260, Math.round(h * 0.22)))
-}
-
-function activityRepeats(activity, targetMs, onePassMs) {
+function activityRepeats(targetMs, onePassMs) {
   var one = Number(onePassMs)
   if (!isFinite(one) || one <= 0) return 1
   var target = isFinite(Number(targetMs)) && Number(targetMs) > 0 ? Number(targetMs) : 9000
-  return Math.max(1, Math.min(4, Math.round(target / one)))
+  return Math.max(1, Math.min(4, Math.ceil(target / one)))
 }
 
 function activityDuration(activity, fallback) {
@@ -1117,19 +1187,24 @@ function homeMonitor(value, segments) {
 }
 
 function readHomes(value) {
-  if (!value || typeof value !== "object") return {}
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   var out = {}
   // The first version of this file held one position and the monitor it was
   // chosen on. Read it as what it meant rather than discarding somebody's
   // placement on an upgrade.
   if (typeof value.monitor === "string" && isFinite(Number(value.x))) {
-    if (value.monitor !== "" && Number(value.x) >= 0) out[value.monitor] = Number(value.x)
+    if (value.monitor !== "" && safeMapKey(value.monitor) && Number(value.x) >= 0)
+      out[value.monitor] = Number(value.x)
     return out
   }
-  var source = value.monitors && typeof value.monitors === "object" ? value.monitors : value
+  var source = value
+  if (value.monitors !== undefined) {
+    if (!value.monitors || typeof value.monitors !== "object" || Array.isArray(value.monitors)) return out
+    source = value.monitors
+  }
   for (var name in source) {
     var x = Number(source[name])
-    if (String(name) !== "" && isFinite(x) && x >= 0) out[String(name)] = x
+    if (String(name) !== "" && safeMapKey(name) && isFinite(x) && x >= 0) out[String(name)] = x
   }
   return out
 }
@@ -1184,7 +1259,6 @@ function activityHold(activity, frame, fallback) {
 
 if (typeof module !== "undefined") {
   module.exports = {
-    clamp01: clamp01,
     energyFromRecord: energyFromRecord,
     freshHookState: freshHookState,
     resolveMood: resolveMood,
@@ -1199,7 +1273,6 @@ if (typeof module !== "undefined") {
     readFaces: readFaces,
     faceFor: faceFor,
     mirroredAt: mirroredAt,
-    consoleWorkspace: consoleWorkspace,
     sessionLifeMs: sessionLifeMs,
     readSessions: readSessions,
     oftenName: oftenName,
@@ -1210,13 +1283,14 @@ if (typeof module !== "undefined") {
     // through the functions above them; an export nobody consumes is a
     // promise nobody asked for.
     idleGlance: idleGlance,
-    parseDuration: parseDuration,
-    timerFace: timerFace,
-    timerWords: timerWords,
+    flagValue: flagValue,
+    boolValue: boolValue,
     mayBlink: mayBlink,
     glanceMs: glanceMs,
     contrastRatio: contrastRatio,
     contrastSafe: contrastSafe,
+    liveTintColor: liveTintColor,
+    liveTintBrightness: liveTintBrightness,
     tintStrength: tintStrength,
     tintFor: tintFor,
     isDrag: isDrag,
@@ -1241,25 +1315,28 @@ if (typeof module !== "undefined") {
     activityHold: activityHold,
     luaStr: luaStr,
     shellQuote: shellQuote,
+    safeMapKey: safeMapKey,
+    safeId: safeId,
+    safeSessionId: safeSessionId,
+    safeRelativePath: safeRelativePath,
     dispatchExec: dispatchExec,
-    consolePlacement: consolePlacement,
-    placementRule: placementRule,
     dispatchToggleSpecial: dispatchToggleSpecial,
     dispatchFocusMonitor: dispatchFocusMonitor,
     worldSegments: worldSegments,
     segmentByName: segmentByName,
     travelPlan: travelPlan,
     buildTalkCommand: buildTalkCommand,
+    buildGuardedRunner: buildGuardedRunner,
     canTalkTo: canTalkTo,
+    canOpenConsole: canOpenConsole,
     buildConsoleResume: buildConsoleResume,
+    buildConsoleCommand: buildConsoleCommand,
     parseTalkLine: parseTalkLine,
     describeTool: describeTool,
     shapeBubbleText: shapeBubbleText,
     activityRepeats: activityRepeats,
-    crossfadeMs: crossfadeMs,
     plainSpeech: plainSpeech,
     readingTimeMs: readingTimeMs,
-    shouldRetryTalk: shouldRetryTalk,
     themeStampMatches: themeStampMatches,
     resolvePetSize: resolvePetSize
   }
