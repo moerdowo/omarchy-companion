@@ -512,14 +512,20 @@ def main(argv=None):
             sleep_row = len(rows_out)
             rows_out.append([poses["sleep"]] * 6)
 
-        flat = []
-        for row in rows_out:
-            padded = list(row) + [str(blank)] * (COLUMNS - len(row))
-            flat.extend(padded[:COLUMNS])
+        # `montage` initializes ImageMagick's text renderer even when no labels
+        # are requested, so it fails on otherwise capable headless systems that
+        # have no fonts installed. Every tile already has the exact same cell
+        # geometry; plain append operations express the job more precisely and
+        # need neither fonts nor a large all-frames image list in memory.
+        atlas_rows = []
+        for index, row in enumerate(rows_out):
+            padded = (list(row) + [str(blank)] * COLUMNS)[:COLUMNS]
+            row_path = tmp / f"atlas-row-{index}.png"
+            run(["magick"] + padded + ["+append", "PNG32:" + str(row_path)])
+            atlas_rows.append(str(row_path))
 
-        run(["magick", "montage"] + flat +
-            ["-tile", f"{COLUMNS}x{len(rows_out)}", "-geometry", "+0+0", "-background", "none",
-             "PNG32:" + str(tmp / "atlas.png")])
+        run(["magick"] + atlas_rows +
+            ["-append", "PNG32:" + str(tmp / "atlas.png")])
         run(["magick", str(tmp / "atlas.png"), "-define", "webp:lossless=true", str(out)])
 
         # A row whose frames are all the same picture is a still pose, and

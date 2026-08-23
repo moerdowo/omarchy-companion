@@ -401,8 +401,16 @@ def main(argv=None):
                     "-composite", str(patched))
                 tiles[index] = str(patched)
 
-        run("magick", "montage", *tiles, "-tile", f"{cols}x{rows}",
-            "-geometry", "+0+0", "-background", "none", "-define", "webp:lossless=true", out)
+        # `montage` initializes ImageMagick's text renderer even without
+        # labels, making a font an accidental requirement on headless systems.
+        # These tiles are already identically sized, so append them directly.
+        sheet_rows = []
+        for row in range(rows):
+            row_path = Path(d) / f"sheet-row-{row}.png"
+            start = row * cols
+            run("magick", *tiles[start:start + cols], "+append", "PNG32:" + str(row_path))
+            sheet_rows.append(str(row_path))
+        run("magick", *sheet_rows, "-append", "-define", "webp:lossless=true", out)
 
     faces = {}
     for r in range(rows):
