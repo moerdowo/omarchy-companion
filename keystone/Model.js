@@ -1167,8 +1167,6 @@ function activityDuration(activity, fallback) {
   return total
 }
 
-// Where the creature stands when nobody has moved it: down in the left
-// corner, far enough out that the cable it trails runs off the screen.
 // Where the creature stands on each screen. Homes are stored per monitor,
 // because a spot chosen on a wide screen means nothing on a narrow one, and
 // a monitor that has since been unplugged should not drag the creature to a
@@ -1184,6 +1182,22 @@ function homeMonitor(value, segments) {
   for (var i = 0; i < segments.length; i++)
     if (segments[i] && segments[i].name === name) return name
   return ""
+}
+
+// Pick a screen without confusing virtual layout order with user intent.
+// A pin and a remembered home are deliberate. Otherwise the focused screen
+// is where a fresh install belongs; with one screen there is no reason to
+// wait for Hyprland's focus object to arrive.
+function preferredMonitor(segments, pinned, remembered, focused) {
+  if (!Array.isArray(segments) || segments.length === 0) return ""
+  var choices = [pinned, remembered, focused]
+  for (var c = 0; c < choices.length; c++) {
+    var wanted = String(choices[c] || "")
+    if (wanted === "") continue
+    for (var i = 0; i < segments.length; i++)
+      if (segments[i] && String(segments[i].name || "") === wanted) return wanted
+  }
+  return segments.length === 1 && segments[0] ? String(segments[0].name || "") : ""
 }
 
 function readHomes(value) {
@@ -1211,22 +1225,37 @@ function readHomes(value) {
 
 // The home for one screen, clamped so a position saved on a wider monitor
 // still lands somewhere sensible on a narrower one.
-function homeFor(homes, monitor, screenWidth, petSize, gapLeft) {
-  var edge = Number(petSize || 56) * 0.3
+function homeFor(homes, monitor, screenWidth, petSize, gapRight, aspect, content, mayMirror) {
+  var size = Number(petSize)
+  if (!isFinite(size) || size <= 0) size = 56
+  var edge = size * 0.3
   var width = Number(screenWidth || 0)
   var stored = homes && homes[monitor]
-  var x = isFinite(Number(stored)) ? Number(stored) : defaultHomeX(petSize, gapLeft)
+  var x = isFinite(Number(stored)) ? Number(stored)
+    : defaultHomeX(width, petSize, gapRight, aspect, content, mayMirror)
   if (width > 2 * edge) x = Math.max(edge, Math.min(width - edge, x))
   return Math.round(x)
 }
 
-function defaultHomeX(petSize, gapLeft) {
-  var size = Number(petSize || 56)
-  var gap = isFinite(Number(gapLeft)) ? Number(gapLeft) : 0
-  // Line the creature's own left edge up with where a window's edge would
-  // be; the cable it trails then runs on into the gap, which is exactly
-  // where a cable belongs.
-  return Math.round(Math.max(8, gap + size * 0.46))
+// A fresh companion starts in the bottom-right corner. Align the visible
+// artwork, not its transparent atlas cell: wide bodies such as Quattro then
+// sit fully on screen, while asymmetric cables can still meet the edge.
+function defaultHomeX(screenWidth, petSize, gapRight, aspect, content, mayMirror) {
+  var width = Number(screenWidth)
+  var size = Number(petSize)
+  if (!isFinite(size) || size <= 0) size = 56
+  var gap = isFinite(Number(gapRight)) ? Math.max(0, Number(gapRight)) : 0
+  var cell = Number(aspect)
+  if (!isFinite(cell) || cell <= 0) cell = ATLAS.frameAspect
+  var left = content && isFinite(Number(content.left))
+    ? clamp01(Number(content.left)) : 0
+  var right = content && isFinite(Number(content.right))
+    ? clamp01(Number(content.right)) : 1
+  if (right < left) right = left
+  var visibleRight = mayMirror === true ? 1 - left : right
+  var inset = Math.max(size * 0.3, size * cell * Math.max(0, visibleRight - 0.5))
+  if (!isFinite(width) || width <= 0) return Math.round(inset)
+  return Math.round(width - gap - inset)
 }
 
 // Hyprland reports its gaps as CSS shorthand: one, two or four numbers in
@@ -1310,6 +1339,7 @@ if (typeof module !== "undefined") {
     readHomes: readHomes,
     homeFor: homeFor,
     homeMonitor: homeMonitor,
+    preferredMonitor: preferredMonitor,
     parseGapsCss: parseGapsCss,
     groundOffset: groundOffset,
     activityHold: activityHold,

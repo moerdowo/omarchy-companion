@@ -81,7 +81,9 @@ being edited is the copy currently loaded.
 Test at least one narrow and one wide bar, keyboard-only navigation, mouse
 navigation, a long agent name, an empty agent list, an invalid custom pet,
 reduced motion, an interrupted agent turn, and a multi-monitor layout with a
-non-zero monitor origin. Verify both light and dark themes.
+non-zero monitor origin. Verify a clean start at the bottom-right of the
+focused monitor, a one-screen laptop start, delayed monitor focus, and a
+previously dragged home. Verify both light and dark themes.
 
 Release screenshots must render the real plugin components at normal scale,
 either from an installed copy or from a clean capture harness that loads the

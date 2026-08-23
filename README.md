@@ -46,6 +46,8 @@ the canonical settings location after migration.
 
 - Click the creature to ask for something. Enter sends; Escape closes.
 - Right-click the creature for Omarchy's native console scratchpad.
+- On a fresh install it sits at the bottom-right of the active screen; on a
+  one-screen laptop that is simply the built-in display.
 - Drag it along an edge to choose its home. Push it into an outer edge to
   tuck it away; pull the visible part back out when you want it.
 - Open the bar widget for status, the latest answer, quick actions, and
@@ -64,7 +66,7 @@ Omarchy's rate-limit records.
 ## Overview and settings
 
 The popout opens on a compact overview: current agent and state, monitor,
-energy, latest answer, Ask, console, and the actions that matter now.
+energy, latest answer, console, and only the actions that matter now.
 The settings view keeps durable choices together:
 
 - agent and conversation lifetime;

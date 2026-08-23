@@ -159,6 +159,17 @@ test("bar and popout are views over the resident service", () => {
   assert.deepEqual(ipcTargets, ["omarchief"], "only the service may own Omarchief IPC")
 })
 
+test("overview keeps only actions that add something", () => {
+  assert.doesNotMatch(panel, /text:\s*"Home"/,
+    "returning to a saved position is not a meaningful overview button")
+  assert.doesNotMatch(panel, /Ask Omarchief/,
+    "the companion itself is already the ask affordance")
+  assert.match(panel, /showPrimaryAction:\s*!ready\s*\|\|\s*!hasAgent\s*\|\|\s*working/,
+    "agent setup and stopping a turn must remain reachable")
+  assert.match(panel, /cellWidth:\s*\(width - spacing\) \/ 2/,
+    "Console and Tuck should share the freed row evenly")
+})
+
 test("every guarded panel action exists on the service", () => {
   const methods = publicFunctions(service)
   const requested = new Set()

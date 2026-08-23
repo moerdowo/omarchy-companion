@@ -326,11 +326,17 @@ test("activities are read defensively and picked at odds", () => {
   assert.equal(M.pickActivity(() => 0.1, [], 0.4), null)
 })
 
-test("home defaults to the left corner, cable off screen", () => {
-  assert.equal(M.defaultHomeX(150), 69)
+test("home defaults to the bottom-right and aligns visible artwork", () => {
+  // An ordinary atlas cell uses the ecosystem's fallback aspect.
+  assert.equal(M.defaultHomeX(1440, 150, 10), 1361)
+  // Quattro is wide: its actual cell and content bounds keep the whole car
+  // inside the same right-hand gap after it turns to face inward.
+  assert.equal(M.defaultHomeX(2560, 130, 10, 333 / 208,
+    { left: 0.021, right: 0.979 }, true), 2450)
   // A nonsense size falls back to the default creature rather than to zero.
-  assert.equal(M.defaultHomeX(0), 26)
-  assert.equal(M.defaultHomeX(10), 8)
+  assert.equal(M.defaultHomeX(1440, 0), 1414)
+  assert.equal(M.defaultHomeX(1440, "not-a-size"), 1414)
+  assert.equal(M.defaultHomeX(1440, 10), 1435)
 })
 
 test("hyprland gap shorthand parses like CSS", () => {
@@ -348,9 +354,9 @@ test("the creature lands on the same line a window's edge does", () => {
   assert.equal(M.groundOffset(0, 150, 4, 208), 0)
 })
 
-test("home aligns the creature's edge with a window's", () => {
-  assert.equal(M.defaultHomeX(150, 10), 79)
-  assert.equal(M.defaultHomeX(150), 69)
+test("home aligns the creature's visible right edge with a window's", () => {
+  assert.equal(M.defaultHomeX(1440, 150, 10), 1361)
+  assert.equal(M.defaultHomeX(1440, 150), 1371)
 })
 
 test("activity holds come from the build, with a steady fallback", () => {
@@ -395,9 +401,9 @@ test("a home clamps onto whatever screen it lands on", () => {
   assert.equal(M.homeFor(homes, "DP-1", 2560, 150, 10), 2400)
   // A narrower screen pulls it inside the edge instead of off the end.
   assert.equal(M.homeFor(homes, "DP-1", 1440, 150, 10), 1395)
-  // An unknown monitor falls back to the corner.
-  assert.equal(M.homeFor(homes, "HDMI-A-1", 1440, 150, 10), 79)
-  assert.equal(M.homeFor({}, "DP-1", 2560, 150, 10), 79)
+  // An unknown monitor falls back to the right corner of its own screen.
+  assert.equal(M.homeFor(homes, "HDMI-A-1", 1440, 150, 10), 1361)
+  assert.equal(M.homeFor({}, "DP-1", 2560, 150, 10), 2481)
 })
 
 test("still rows are read defensively and recognised", () => {
@@ -647,6 +653,21 @@ test("the creature remembers which screen it lives on", () => {
 
   // The position on that screen is still read the way it always was.
   assert.deepEqual(M.readHomes({ monitors: { "DP-1": 59 }, monitor: "DP-1" }), { "DP-1": 59 })
+})
+
+test("a fresh install chooses intent, not the leftmost monitor", () => {
+  const screens = [{ name: "HDMI-A-1" }, { name: "DP-1" }, { name: "DP-2" }]
+  assert.equal(M.preferredMonitor(screens, "DP-2", "DP-1", "HDMI-A-1"), "DP-2",
+    "an explicit pin wins")
+  assert.equal(M.preferredMonitor(screens, "missing", "DP-1", "HDMI-A-1"), "DP-1",
+    "a connected remembered home comes next")
+  assert.equal(M.preferredMonitor(screens, "", "missing", "DP-1"), "DP-1",
+    "a fresh install opens on the focused display")
+  assert.equal(M.preferredMonitor(screens, "", "", ""), "",
+    "virtual left-to-right order is not a main-screen signal")
+  assert.equal(M.preferredMonitor([{ name: "eDP-1" }], "", "", ""), "eDP-1",
+    "a laptop's only display is immediately unambiguous")
+  assert.equal(M.preferredMonitor([], "DP-1", "DP-1", "DP-1"), "")
 })
 
 test("a resting creature borrows only faces that carry no news", () => {

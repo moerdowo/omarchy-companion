@@ -503,7 +503,7 @@ Item {
       ? Math.round(v) : -1
   }
   readonly property real gapBottom: cfgEdgeGap >= 0 ? cfgEdgeGap : Number(gaps.bottom || 0)
-  readonly property real gapLeft: cfgEdgeGap >= 0 ? cfgEdgeGap : Number(gaps.left || 0)
+  readonly property real gapRight: cfgEdgeGap >= 0 ? cfgEdgeGap : Number(gaps.right || 0)
 
   Process {
     id: gapsProc
@@ -525,10 +525,10 @@ Item {
 
   // ------------------------------------------------------------ home
   //
-  // The creature lives somewhere: down in the left corner by default, where
-  // the cable it trails runs off the screen, and wherever you drag it after
-  // that. The spot is remembered next to the rest of our state rather than
-  // in the user's config, because it is a placement, not a preference.
+  // The creature starts in the bottom-right corner of the active screen and
+  // lives wherever it is dragged after that. The spot is remembered next to
+  // the rest of our state rather than in the user's config, because it is a
+  // placement, not a preference.
 
   readonly property string homeFile: stateHome + "/omarchy/omarchief/home.json"
   property var homes: ({})
@@ -538,7 +538,22 @@ Item {
   property var pendingHome: null
   readonly property var worldSegment: Model.segmentByName(segments, worldMonitor)
   readonly property real worldWidth: worldSegment ? worldSegment.w : 0
-  readonly property real effectiveHomeX: Model.homeFor(homes, worldMonitor, worldWidth, petSize, gapLeft)
+  readonly property real effectiveHomeX: Model.homeFor(
+    homes, worldMonitor, worldWidth, petSize, gapRight,
+    spriteCellAspect, spriteContent, spriteMirror)
+
+  function refreshDefaultHome() {
+    if (root.worldMonitor === "" || root.pendingTravel !== null) return
+    var stored = root.homes && root.homes[root.worldMonitor]
+    if (isFinite(Number(stored))) return
+    root.spawnLocalX = root.effectiveHomeX
+    if (root.activeChief)
+      Qt.callLater(function() {
+        if (root.activeChief && root.pendingTravel === null)
+          root.activeChief.px = root.activeChief.boundedX(root.effectiveHomeX)
+      })
+  }
+  onEffectiveHomeXChanged: root.refreshDefaultHome()
 
 
   FileView {
@@ -616,7 +631,6 @@ Item {
     root.spawnLocalX = x
     root.worldMonitor = remembered
     if (sameMonitor && root.activeChief) root.activeChief.px = x
-    root.placementGuessed = false
   }
 
   function recordHome(monitor, x, hasPosition) {
@@ -624,7 +638,6 @@ Item {
     if (name === "" || !Model.safeMapKey(name)) return
     if (hasPosition && isFinite(Number(x))) {
       root.spawnLocalX = Math.round(Number(x))
-      root.placementGuessed = false
     }
     if (!root.homeLoaded) { root.queueHome(name, x, hasPosition); return }
     var next = ({})
@@ -650,7 +663,8 @@ Item {
   // Arriving on a screen means standing where the creature stands there.
   function homeOn(monitor) {
     var seg = Model.segmentByName(segments, monitor)
-    return Model.homeFor(homes, monitor, seg ? seg.w : 0, petSize, gapLeft)
+    return Model.homeFor(homes, monitor, seg ? seg.w : 0, petSize, gapRight,
+                         spriteCellAspect, spriteContent, spriteMirror)
   }
 
   // ------------------------------------------------------------ the world
@@ -686,7 +700,6 @@ Item {
       displaced = false
       spawnLocalX = homeOn(wanted)
       worldMonitor = wanted
-      placementGuessed = false
       return
     }
     if (Model.segmentByName(segments, worldMonitor) !== null) {
@@ -704,18 +717,17 @@ Item {
     // is not displacement either — that is just arriving.
     var hadGround = worldMonitor !== ""
     if (hadGround) displaced = true
-    var fallback = back !== "" ? back
-      : Model.segmentByName(segments, focusedMonName) !== null ? focusedMonName
-      : segments[0].name
+    var fallback = Model.preferredMonitor(segments, pinned, back, focusedMonName)
+    // Only a disappearing monitor needs an emergency first-screen fallback.
+    // On a fresh multi-monitor start, wait for the focused monitor instead
+    // of mistaking virtual left-to-right order for the user's main display.
+    if (fallback === "" && hadGround) fallback = segments[0].name
+    if (fallback === "") return
     spawnLocalX = homeOn(fallback)
     worldMonitor = fallback
-    // Placed for want of an answer: correct it when the answer arrives.
-    if (!hadGround) placementGuessed = true
   }
 
   property string worldMonitor: ""
-  // Whether the screen it stands on was picked for it rather than remembered.
-  property bool placementGuessed: false
   // Whether it is standing somewhere only because its own screen went away.
   property bool displaced: false
   // Whether the remembered home has been read yet. Recording where the
@@ -743,6 +755,7 @@ Item {
   property bool pendingAsk: false
   property string pendingAskMonitor: ""
   property var activeChief: null
+  onActiveChiefChanged: if (activeChief) root.refreshDefaultHome()
   readonly property bool canPlayActivity: activeChief !== null
     && activeChief.canPlayActivity === true
 
@@ -793,7 +806,6 @@ Item {
     var local = trip.useHome && root.homeLoaded ? root.homeOn(trip.mon) : trip.local
     root.spawnLocalX = local
     root.worldMonitor = trip.mon
-    root.placementGuessed = trip.useHome && !root.homeLoaded
     root.recordHome(trip.mon, local, !trip.useHome)
   }
 
@@ -869,10 +881,11 @@ Item {
     // Where it was left beats where the focus happens to be: a still pet
     // cannot walk back, and a walking one would rather not be made to.
     var remembered = Model.homeMonitor({ monitor: root.homeMon }, root.segments)
-    var target = remembered !== "" ? remembered : root.focusedMonName
+    var target = Model.preferredMonitor(root.segments, root.cfgScreen,
+                                        remembered, root.focusedMonName)
+    if (target === "") return
     root.spawnLocalX = root.homeOn(target)
     root.worldMonitor = target
-    root.placementGuessed = remembered === ""
   }
   onCfgFollowChanged: root.armFollow()
   onCfgScreenChanged: {
@@ -1133,6 +1146,18 @@ Item {
   property var spriteIdleFaces: null
   property var spriteBlink: null
   property var spriteContent: null
+  // Align the visible drawing, not its transparent atlas cell, with the
+  // screen edge. Qt shares this decode with the on-screen Image.
+  Image {
+    id: spriteGeometry
+    visible: false
+    asynchronous: true
+    cache: true
+    source: root.spriteBaseSource
+  }
+  readonly property real spriteCellAspect: Model.cellAspect(
+    spriteGeometry.implicitWidth, spriteGeometry.implicitHeight,
+    spriteRows, spriteColumns)
   readonly property bool stillPet: spriteFaces !== null
   property int spritePreferredSize: 0
   property bool spritePixelArt: false

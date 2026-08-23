@@ -37,6 +37,10 @@ Panel {
   readonly property bool hasAgent: ready
     && ("agentAvailable" in service ? service.agentAvailable === true
       : agentId !== "" && (typeof service.hasAgent !== "function" || service.hasAgent(agentId)))
+  // Asking belongs to the companion itself. The overview only grows a
+  // primary action when there is an exceptional job to do: finish starting,
+  // choose a missing agent, or stop a running turn.
+  readonly property bool showPrimaryAction: !ready || !hasAgent || working
   readonly property var agents: ready && Array.isArray(service.installedAgents)
     ? service.installedAgents : []
   readonly property var pets: ready && Array.isArray(service.installedPets)
@@ -295,10 +299,6 @@ Panel {
     if (typeof service.summonConsole === "function") service.summonConsole(monitorName)
   }
 
-  function goHome() {
-    if (service && typeof service.goHomeOn === "function") service.goHomeOn(monitorName)
-  }
-
   function playRandom() {
     if (service && typeof service.playRandom === "function") service.playRandom()
   }
@@ -309,7 +309,7 @@ Panel {
 
   function open() {
     root.view = "overview"
-    root.focusId = "primary"
+    root.focusId = root.showPrimaryAction ? "primary" : "quick"
     root.cursorActive = false
     if (service && typeof service.refreshChoices === "function") service.refreshChoices()
     root.controller.show()
@@ -345,7 +345,9 @@ Panel {
 
   function navIds() {
     if (view === "overview") {
-      var overview = ["settings", "primary", "quick"]
+      var overview = ["settings"]
+      if (showPrimaryAction) overview.push("primary")
+      overview.push("quick")
       if (hasActivities || inConversation) overview.push("utility")
       overview.push("shown")
       return overview
@@ -374,7 +376,7 @@ Panel {
       case "settings": return overviewHero
       case "back": return settingsHero
       case "primary": return primaryButton
-      case "quick": return quickCursor === 0 ? consoleButton : quickCursor === 1 ? homeButton : tuckButton
+      case "quick": return quickCursor === 0 ? consoleButton : tuckButton
       case "utility": {
         var action = currentUtilityAction()
         return action === "play" ? playButton : action === "fresh" ? freshButton : null
@@ -422,7 +424,7 @@ Panel {
   }
 
   function syncGroupCursor() {
-    if (focusId === "quick") quickCursor = Math.max(0, Math.min(2, quickCursor))
+    if (focusId === "quick") quickCursor = Math.max(0, Math.min(1, quickCursor))
     else if (focusId === "utility") syncUtilityAction()
     else if (focusId === "conversation")
       conversationCursor = optionIndex(conversationOptions, String(service.cfgSessionIdleMin))
@@ -487,7 +489,7 @@ Panel {
 
   function moveHorizontal(delta) {
     if (revealCursor()) return
-    if (focusId === "quick") quickCursor = Math.max(0, Math.min(2, quickCursor + delta))
+    if (focusId === "quick") quickCursor = Math.max(0, Math.min(1, quickCursor + delta))
     else if (focusId === "utility") {
       var actions = utilityActions()
       var here = actions.indexOf(currentUtilityAction())
@@ -506,7 +508,6 @@ Panel {
       case "primary": primaryAction(); break
       case "quick":
         if (quickCursor === 0) consoleHere()
-        else if (quickCursor === 1) goHome()
         else setTucked(!tucked)
         break
       case "utility":
@@ -699,11 +700,12 @@ Panel {
 
             Button {
               id: primaryButton
+              visible: root.showPrimaryAction
               width: parent.width
               text: !root.ready ? "Starting…"
                 : root.working ? "Stop current turn"
-                : !root.hasAgent ? "Choose desktop agent…" : "Ask Omarchief"
-              iconText: root.working ? "󰓛" : root.hasAgent ? "󰭻" : "󰒓"
+                : "Choose desktop agent…"
+              iconText: root.working ? "󰓛" : "󰒓"
               bordered: true
               enabled: root.ready
               foreground: root.working ? root.urgent : root.foreground
@@ -718,7 +720,7 @@ Panel {
               width: parent.width
               spacing: Style.spacing.md
 
-              readonly property real cellWidth: (width - spacing * 2) / 3
+              readonly property real cellWidth: (width - spacing) / 2
 
               Button {
                 id: consoleButton
@@ -736,21 +738,6 @@ Panel {
               }
 
               Button {
-                id: homeButton
-                width: parent.cellWidth
-                text: "Home"
-                iconText: "󰋜"
-                bordered: true
-                enabled: root.ready
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                fontSize: Style.font.bodySmall
-                hasCursor: root.cursorActive && root.focusId === "quick" && root.quickCursor === 1
-                onHovered: function(on) { if (on) root.setCursor("quick", homeButton, 1) }
-                onClicked: root.goHome()
-              }
-
-              Button {
                 id: tuckButton
                 width: parent.cellWidth
                 text: root.tucked ? "Return" : "Tuck"
@@ -760,8 +747,8 @@ Panel {
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 fontSize: Style.font.bodySmall
-                hasCursor: root.cursorActive && root.focusId === "quick" && root.quickCursor === 2
-                onHovered: function(on) { if (on) root.setCursor("quick", tuckButton, 2) }
+                hasCursor: root.cursorActive && root.focusId === "quick" && root.quickCursor === 1
+                onHovered: function(on) { if (on) root.setCursor("quick", tuckButton, 1) }
                 onClicked: root.setTucked(!root.tucked)
               }
             }

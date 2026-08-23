@@ -215,8 +215,25 @@ ShellRoot {
           petIds.push(String(service.installedPets[p].id || ""))
         petIds.sort()
         if (petIds.join(",") !== "gritty,quattro") return
+        if (service.worldMonitor === "" || !service.activeChief) return
+        var expectedMonitor = service.segments.length === 1
+          ? String(service.segments[0].name || "") : String(service.focusedMonName || "")
+        if (expectedMonitor !== "" && service.worldMonitor !== expectedMonitor) {
+          root.fail("fresh install chose " + service.worldMonitor
+            + " instead of active screen " + expectedMonitor)
+          return
+        }
+        if (service.spawnLocalX <= service.worldWidth / 2
+            || Math.abs(service.spawnLocalX - service.effectiveHomeX) > 1) {
+          root.fail("fresh companion did not settle at the bottom-right home"
+            + " (spawn=" + service.spawnLocalX
+            + ", home=" + service.effectiveHomeX
+            + ", width=" + service.worldWidth + ")")
+          return
+        }
         console.log("COLDSTART body: sprite pet: gritty source: bundled")
         console.log("COLDSTART picker: gritty + quattro")
+        console.log("COLDSTART placement: active screen + bottom-right home")
         // Exercise the real 3.x migration after proving a clean install. Old
         // setup instructions could leave settings in a file, more than one
         // bar entry, and top-level plugin entries at the same time.

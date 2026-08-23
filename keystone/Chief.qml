@@ -339,7 +339,10 @@ Item {
   property bool seeded: false
   onWidthChanged: {
     if (width <= 0) return
-    var next = seeded ? px : (initialPx >= 0 ? initialPx : width * 0.75)
+    // Service normally supplies the artwork-aware edge position. Keep the
+    // standalone fail-safe consistent: its procedural body is one petSize
+    // wide, so half a body from the right edge is fully visible.
+    var next = seeded ? px : (initialPx >= 0 ? initialPx : width - petSize * 0.5)
     px = boundedX(next)
     seeded = true
   }
