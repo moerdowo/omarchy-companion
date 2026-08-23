@@ -1,12 +1,17 @@
 # Making a pet for Omarchief
 
 A pet is a folder with a `pet.json` and one spritesheet. Drop it into
-`~/.config/omarchief/pets/<id>/` and name it in
-`~/.config/omarchy/omarchief.json`:
+`~/.config/omarchief/pets/<id>/` and it appears under **Who stands there**
+in the bar menu. To name it without the menu:
 
-```json
-{ "pet": "gritty" }
+```bash
+omarchy-shell omarchief pet <id>
 ```
+
+which writes `pet` onto this plugin's entry in
+`~/.config/omarchy/shell.json`, where the shell keeps every plugin's
+settings. `~/.config/omarchy/omarchief.json` is still read for the same
+keys, so an older setup keeps working.
 
 Pets from the Codex/Petdex ecosystem work as they are — the first nine
 rows mean what they mean everywhere. Everything past row eight is
@@ -307,7 +312,10 @@ tools/build-faces.py pets/quattro/quattro.webp render.png 1 1 idle
 
 ## Building an animated sheet
 
-`tools/build-atlas.py` does all of the above:
+`tools/build-atlas.py` does all of the above. The renders it reads from
+`tools/source/` are not in the clone — they are attached to each release,
+and [tools/source/README.md](../tools/source/README.md) has the one command
+that puts them back:
 
 ```bash
 tools/build-atlas.py pets/gritty/gritty-v10.webp \

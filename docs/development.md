@@ -148,7 +148,8 @@ so, for three. That is hard to catch on purpose and easy to fool yourself
 about, so the status file publishes the decision — `glancing` holds the
 cell it is wearing, or an empty string — separately from the pixels.
 Watch that rather than the screen, and turn the odds up while you do by
-setting `expressionChance` to 1 in `omarchief.json`.
+turning the odds up while you do — `omarchy-shell omarchief often often`,
+or `expressionChance` on this plugin's `shell.json` entry.
 
 A word of warning about comparing the creature on screen against the
 sheet: the pixels that tell two faces apart are often *outside* the body —

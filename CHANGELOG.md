@@ -1,5 +1,75 @@
 # Changelog
 
+## 3.38.0 — 2026-08-23
+
+- The agent picker asks Omarchy which agents exist and what they are
+  called, rather than carrying a copy of the list. Both come out of
+  `omarchy-default-agent` itself — the `omarchy:args` header `omarchy
+  commands` reads, and the case block under it where `omp` learns it is
+  called Oh My Pi — so the picker, the hero and the tooltip now say Codex
+  and Oh My Pi. The old list stays as the fallback for a desktop that has
+  moved the script.
+- The status line reported `hooks=` from whether a hook report file
+  happened to exist rather than whether the hooks were installed, and
+  printed `agent=` twice with two different meanings. It also shows
+  `kept=` when the creature has been held to one screen.
+- The artwork renders left the clone. Twelve megabytes of build inputs
+  against three hundred kilobytes of plugin, and nothing loads them at
+  runtime: they are attached to each release instead, with the command
+  that puts them back in `tools/source/README.md`.
+
+## 3.37.0 — 2026-08-23
+
+- **Every row in the menu was sending a call the shell refused.**
+  Quickshell counts a call's arguments before it looks at them, so a verb
+  declared `function speak(on: string)` rejected the bare `speak` the menu
+  sent. Seven toggles, the agent picker's *Follow the default*, *Do
+  something*, and *How often* — whose value `now and then` arrived as three
+  arguments — were inert, and the popout closes on click, so the refusal
+  was never seen. Rows that toggle now name the state they want, and every
+  chosen value is quoted so it stays one argument whatever is in it.
+- A test reads the menu's commands and the panel's verbs out of the source
+  and holds them to each other, because nothing about this fault is visible
+  from the outside: nothing crashes, nothing logs, the click just does not
+  land.
+
+## 3.36.0 — 2026-08-23
+
+- **Lives on** replaces the old *Screen* row. The pin was honoured in three
+  places and settable in none, while the row it sat beside sent the
+  creature somewhere focus could undo a second later. Name a screen and it
+  stays there — `travel` is refused, whoever asks — or choose *wherever I
+  work* to hand it back. *Follow my focus* only appears in that second
+  case, because it means nothing in the first.
+- The clock behind the bar button's stale check only ticked while the
+  popout was open, which is the state it is never in when the check
+  matters.
+
+## 3.35.0 — 2026-08-23
+
+- The agent is told which monitor its own body is standing on, so a window
+  it opens lands on the screen you are watching it from rather than
+  wherever focus happened to be. It is also told the case that cannot be
+  helped: an application already running takes the page as a tab in the
+  window it already has, and no focusing moves that window.
+- A fresh install warned on every start. `onLoadFailed` still assigned to
+  `cfg`, which stopped being writable when settings moved onto the
+  `shell.json` entry — a machine that has the old config file never runs
+  that line, and a machine installing for the first time runs it always.
+
+## 3.34.0 — 2026-08-23
+
+- It can work whatever is playing — a YouTube tab as readily as Spotify —
+  through the shell's own `media` target, which no CLI listing mentions and
+  which no agent would guess on a machine with no `playerctl`. `notifications`,
+  `idle`, `nightlight` and `lock` are named beside it; every one was tried
+  before it was written down.
+- A standing rule to use the desktop's own controls rather than work around
+  them: no editing config files by hand, killing processes, restarting the
+  shell, or driving an application through synthetic keystrokes. The
+  official way is the one that keeps the desktop's idea of its own state
+  true, and the one a person can undo.
+
 ## 3.33.0 — 2026-08-23
 
 - Settings live inline on this plugin's entry in `shell.json`, where the

@@ -152,7 +152,10 @@ it is going; the time it takes scales with the real distance.
 
 `omarchy-shell omarchief travel DP-2` sends it somewhere, and the console
 always drops where it stands. It remembers which screen it lives on, so
-it comes back there rather than to wherever the focus happened to be. A
+it comes back there rather than to wherever the focus happened to be.
+**Lives on** in the menu settles the question outright: name a screen and
+it stays there — following your focus is off, and a `travel` elsewhere is
+refused, whoever asks — or choose *wherever I work* to hand it back. A
 pet that walks also follows your focus; a still one stays put, since
 crossing a screen boundary is not something you can drag it across.
 
@@ -436,9 +439,12 @@ keystrokes, because the official way is the one that keeps the desktop's
 idea of its own state true and the one a person can undo.
 
 It gives Hyprland's own dialect too, which matters: this Hyprland takes
-its dispatchers as Lua — `hyprctl dispatch "hl.dsp.exec_cmd('kitty')"` —
-and rejects the plain `hyprctl dispatch exec kitty` that every older
-example on the internet uses. It also warns that a dispatcher naming no
+its dispatchers as Lua — `hyprctl dispatch "hl.dsp.exec_cmd('<command>')"`
+— and rejects the plain `hyprctl dispatch exec <command>` that every older
+example on the internet uses. The examples name no application on purpose:
+told that a terminal is `kitty`, an agent will reach for `kitty` on a
+machine that has never had one, so the terminal it is pointed at is
+`omarchy launch terminal`, which opens whichever one you actually chose. It also warns that a dispatcher naming no
 target acts on whatever happens to be focused, which is how you close the
 wrong window.
 
