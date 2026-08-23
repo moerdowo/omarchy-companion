@@ -183,6 +183,10 @@ test("drag, tuck, and scrolling keep their visual chrome out of the way", () => 
   assert.match(chief,
     /readonly property bool peeking:[\s\S]*?promptOpen\s*\|\|\s*sayMode\s*!==\s*""/,
     "a tucked pet must stay raised while its prompt or reply is visible")
+  assert.match(chief, /pet\.peeking \? 0\.70 : 1/,
+    "a bottom-tucked pet should rise a little farther for interaction")
+  assert.match(chief, /pet\.peeking \? 0\.75 : 1/,
+    "a side-tucked pet should slide a little farther out for interaction")
   assert.match(chief,
     /function focusPrompt\(\)[\s\S]*?forceActiveFocus\(\)[\s\S]*?cursorVisible:\s*visible\s*&&\s*activeFocus/,
     "an open prompt must claim focus and show its insertion caret")
@@ -426,13 +430,13 @@ test("persisted agent and legacy conversation settings keep their JSON types", (
 test("turning theme dressing off restores the original sheet immediately", () => {
   const chief = read(chiefPath)
   assert.match(chief,
-    /function cancelRepaint\(\)[\s\S]*?repaintRise\.stop\(\)[\s\S]*?repaintFrom = ""[\s\S]*?repaintFill = 1/,
+    /function cancelRepaint\(\)[\s\S]*?repaintRise\.stop\(\)[\s\S]*?repaintFrom = ""[\s\S]*?repaintTint = 0[\s\S]*?repaintFill = 1/,
     "the presentation must be able to remove an old coat synchronously")
   assert.match(service,
-    /onCfgThemeChanged:[\s\S]*?if \(cfgTheme\)[\s\S]*?redressGiveUp\.stop\(\)[\s\S]*?redressing = false[\s\S]*?wornBefore = ""[\s\S]*?activeChief\.cancelRepaint\(\)[\s\S]*?root\.syncSpriteSource\(\)/,
+    /onCfgThemeChanged:[\s\S]*?if \(cfgTheme\)[\s\S]*?root\.beginRedress\(\)[\s\S]*?redressGiveUp\.stop\(\)[\s\S]*?themeRequestSerial\+\+[\s\S]*?redressing = false[\s\S]*?wornBefore = ""[\s\S]*?activeChief\.cancelRepaint\(\)[\s\S]*?root\.syncSpriteSource\(\)[\s\S]*?root\.rememberCurrentCoat\(\)/,
     "Theme off must not keep the previous themed sheet during an in-flight redraw")
   assert.match(service,
-    /function resetPetState\(\)[\s\S]*?activeChief\.cancelRepaint\(\)/,
+    /function resetPetState\(\)[\s\S]*?activeChief\.cancelRepaint\(\)[\s\S]*?settledCoat = ""[\s\S]*?themeRequestSerial\+\+/,
     "changing companion must not overlay the previous companion's paint")
 })
 
@@ -505,8 +509,10 @@ test("console handoff maps one identified agent before focusing or revealing", (
     "the requested monitor is remembered but must not be focused before the window maps")
 })
 
-test("live tint covers the first redraw but never double-tints a cached coat", () => {
-  assert.match(service, /redrawCovered:\s*themedUsable\s*\|\|\s*holdingThemedSheet/)
+test("theme repaint starts on Omarchy's reveal and never double-tints a cached coat", () => {
+  assert.match(service, /redrawCovered:\s*themedUsable\s*\n/)
+  assert.doesNotMatch(service, /holdingThemedSheet/,
+    "the previous coat must not delay the current palette's live preview")
   assert.doesNotMatch(service, /redrawCovered:\s*canRedraw/,
     "ImageMagick availability does not describe the sheet currently on screen")
   assert.match(service, /property bool canRedraw:\s*false/,
@@ -519,12 +525,36 @@ test("live tint covers the first redraw but never double-tints a cached coat", (
     /MultiEffect\s*\{\s*visible:\s*pet\.tintStrength > 0\s*\n\s*source:\s*sheet[\s\S]*?opacity:\s*vp\.bodyOpacity/,
     "MultiEffect ignores the source Image opacity, so sleeping opacity belongs on the effect")
   assert.match(service,
-    /oldWasThemed[\s\S]*?oldWasThemed && spritePetId === repaintPetId[\s\S]*?activeChief\.repaint\(wornBefore\)/,
-    "the raw original must never cover the first lossless theme coat")
+    /function beginRedress\(\)[\s\S]*?previous = String\(settledCoat\)[\s\S]*?syncSpriteSource\(\)[\s\S]*?activeChief\.repaint\(previous, previousTint, previousRgb, previousBrightness\)[\s\S]*?rememberCurrentCoat\(\)/,
+    "the old rendered coat must cover an immediate preview, not block on ImageMagick")
+  assert.match(service,
+    /var next = themedUsable \?[^\n]*\n\s*: spriteBaseSource/,
+    "a cache miss must show the current palette through the raw sheet immediately")
+  assert.match(service,
+    /onAccentHexChanged:\s*\{ backgroundRedress\.stop\(\); root\.beginRedress\(\) \}/,
+    "the pet reveal must start inside Omarchy's own synchronous Color update")
   assert.doesNotMatch(chief, /visible:\s*paintOver\.visible/,
-    "a full-cell waterline must not escape the artwork's transparent silhouette")
-  assert.match(chief, /id:\s*paintOver[\s\S]*?clip:\s*true\s*\n\s*opacity:\s*vp\.bodyOpacity/,
-    "a sleeping pet must not brighten while an old theme coat is lifted")
+    "the mask must remain inside the artwork's transparent silhouette")
+  assert.match(chief,
+    /id:\s*repaintRise[\s\S]*?duration:\s*420[\s\S]*?easing\.type:\s*Easing\.InOutCubic/,
+    "duration and curve must match Omarchy's built-in background reveal")
+  assert.match(chief,
+    /id:\s*repaintMask[\s\S]*?slant:\s*-0\.18[\s\S]*?screenY:[^\n]*pet\.fullScreenHeight - pet\.height[\s\S]*?desiredTop:[\s\S]*?pet\.width \/ 2[\s\S]*?pet\.mirrored \? width - desiredTop : desiredTop[\s\S]*?reach:[\s\S]*?pet\.width \/ 2[\s\S]*?pet\.fullScreenHeight \/ 2 \+ 4[\s\S]*?spread:\s*reach \* pet\.repaintFill/,
+    "the reveal must use the exact global slice of Omarchy's slanted centre-out band")
+  assert.match(service, /fullScreenHeight:\s*modelData\.height/,
+    "each pet window must provide its output height to the global reveal mask")
+  assert.match(chief,
+    /id:\s*paintOver[\s\S]*?opacity:\s*vp\.bodyOpacity[\s\S]*?maskSource:\s*repaintMask[\s\S]*?maskInverted:\s*true/,
+    "a sleeping pet must not brighten while the old coat is lifted")
+  assert.match(chief,
+    /id:\s*oldSheet[\s\S]*?visible:\s*pet\.repaintTint <= 0[\s\S]*?visible:\s*pet\.repaintTint > 0[\s\S]*?source:\s*oldSheet/,
+    "an old live-tinted coat must retain its exact rendered colour")
+  assert.match(service,
+    /var current = root\.recolorSerial === root\.themeRequestSerial[\s\S]*?root\.recolorTarget === root\.themedSheet[\s\S]*?if \(code === 0 && current\)[\s\S]*?else if \(code !== 0 && current\)/,
+    "a stale recolor result must never publish or clear a newer theme")
+  assert.match(service,
+    /function rememberCurrentCoat\(\)[\s\S]*?var strength = cfgTheme \? Model\.tintFor\(spriteThemeable, lossless, petTint\) : 0[\s\S]*?settledCoatTint = strength/,
+    "the remembered coat must not depend on a QML tint binding settling first")
   assert.match(chief, /id:\s*brain[\s\S]*?running:[\s\S]*?pet\.activity === null/,
     "ambient motion must not interrupt a performance already on stage")
 })
@@ -579,7 +609,13 @@ test("bundled pets are safe, complete, and uniquely identified", () => {
         `${id} face ${mood} has an invalid column`)
     }
   }
-  assert.deepEqual([...ids].sort(), ["gritty", "quattro"])
+  assert.deepEqual([...ids].sort(), ["gritty", "gritty-front", "quattro"])
+  const gritty = rgba(join(root, "pets/gritty/gritty-faces.webp"))
+  const brandPixel = (70 * gritty.width + 120) * 4
+  assert.deepEqual([...gritty.pixels.slice(brandPixel, brandPixel + 3)], [158, 206, 106],
+    "Gritty's unthemed reference midtone must be Omarchy green #9ece6a")
+  assert.ok(gritty.pixels[brandPixel + 3] >= 250,
+    "the branded reference must be a visible shell pixel")
   assert.equal(JSON.parse(read("pets/quattro/pet.json")).mirror, true,
     "Quattro must turn on the right so its flipped release cell always faces inward")
   const quattro = rgba(join(root, "pets/quattro/quattro.webp"))
@@ -593,12 +629,36 @@ test("bundled pets are safe, complete, and uniquely identified", () => {
     "Quattro's canonical cell must keep its flipped right-facing orientation")
   assert.match(read("tools/source/README.md"), /-extent 333x208 -flop/,
     "the documented Quattro rebuild must preserve its canonical orientation")
+  const front = JSON.parse(read("pets/gritty-front/pet.json"))
+  assert.equal(front.displayName, "Gritty, head on")
+  assert.equal(front.mirror, true,
+    "the head-on cable must turn with the body on the right half of a screen")
+  assert.match(service,
+    /priority = \{'gritty': 0, 'quattro': 1, 'gritty-front': 2, 'glitchcat': 3\}/,
+    "the picker must keep the curated companions ahead of arbitrary local ids")
+})
+
+test("pet discovery never flashes the procedural emergency body", () => {
+  assert.match(service,
+    /property bool petResolved:\s*false[\s\S]*?function resetPetState\(\)[\s\S]*?root\.petResolved = false/)
+  assert.match(service,
+    /function rejectPet\(message\)[\s\S]*?root\.petResolved = false[\s\S]*?if \(root\.petDirIndex < root\.petDirCandidates\.length - 1\) root\.petDirIndex\+\+[\s\S]*?else root\.petResolved = true/,
+    "the fallback becomes visible only after all artwork candidates fail")
+  assert.match(service,
+    /root\.spriteOk = true\s*\n\s*root\.petResolved = true/,
+    "valid artwork resolves the hidden loading state")
+  assert.match(service,
+    /active:\s*win\.visible && root\.petResolved\s*\n\s*visible:\s*root\.petResolved/,
+    "the Chief must neither render nor animate during manifest lookup")
 })
 
 test("theme repainting clears its floor without touching unmasked artwork", () => {
   const version = spawnSync("magick", ["-version"], { encoding: "utf8" })
   assert.equal(version.status, 0, "ImageMagick 7's magick command is required")
   assert.match(version.stdout, /^Version: ImageMagick 7\./m)
+  assert.match(read("tools/omarchief-recolor"),
+    /-define webp:lossless=true -define webp:method=0/,
+    "theme caches must finish inside Omarchy's reveal instead of optimizing ephemeral bytes")
   const work = mkdtempSync(join(tmpdir(), "omarchief-recolor-"))
   try {
     const sourcePath = join(root, "pets/gritty/gritty-faces.webp")
@@ -679,7 +739,7 @@ test("theme repainting clears its floor without touching unmasked artwork", () =
 
 test("the real Qt live-tint shader keeps bundled bodies legible and shaded", () => {
   const clamp = (value) => Math.max(0, Math.min(1, value))
-  for (const id of ["gritty", "quattro"]) {
+  for (const id of ["gritty", "quattro", "gritty-front"]) {
     const spec = JSON.parse(read(`pets/${id}/pet.json`))
     const source = rgba(join(root, "pets", id, spec.spritesheetPath))
     const skin = spec.themeable
@@ -689,7 +749,8 @@ test("the real Qt live-tint shader keeps bundled bodies legible and shaded", () 
         { r: accent[0], g: accent[1], b: accent[2] },
         { r: background[0], g: background[1], b: background[2] })
       const target = [targetObject.r, targetObject.g, targetObject.b]
-      const strength = 0.7
+      const strength = Model.tintFor(skin, false,
+        Model.tintStrength(spec.themeTint, 0))
       const brightness = Model.liveTintBrightness(
         { r: background[0], g: background[1], b: background[2] }, strength)
       const sum = [0, 0, 0]
@@ -757,12 +818,11 @@ test("the real Qt live-tint shader keeps bundled bodies legible and shaded", () 
   }
 })
 
-test("release tree contains no generated caches, removed front view, or hook installer", () => {
+test("release tree contains no generated caches or hook installer", () => {
   const paths = filesUnder(root).map((path) => relative(root, path).split(sep).join("/"))
   for (const path of paths) {
     assert.doesNotMatch(path, /(^|\/)__pycache__(\/|$)|\.py[co]$/,
       `generated Python cache in release tree: ${path}`)
-    assert.doesNotMatch(path, /^pets\/gritty-front\//, `removed front-view art remains: ${path}`)
     assert.doesNotMatch(path, /^tools\/omarchief-hooks?$/,
       `removed hook installer remains: ${path}`)
   }
@@ -772,7 +832,6 @@ test("documentation does not instruct users to create duplicate plugin entries",
   const readme = read("README.md")
   assert.match(readme, /That is the entire setup\./)
   assert.doesNotMatch(readme, /bar\s*→\s*layout|hooks\s+(?:on|off)/i)
-  assert.doesNotMatch(readme, /gritty-front/i)
   assert.doesNotMatch(readme, /consoleAt|over the creature/i)
 })
 

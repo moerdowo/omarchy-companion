@@ -18,8 +18,8 @@
   Existing OmaPets-compatible state remains an optional, passive input.
 - Restored the approved Quattro artwork with complete upstream Omarchy MIT
   attribution, made the car face inward on either side of a screen, and
-  removed the redundant front-view Gritty variant. Python caches and other
-  local build artefacts are excluded from releases and checked in CI.
+  restored the deliberately stark head-on Gritty portrait. Python caches and
+  other local build artefacts are excluded from releases and checked in CI.
 - Added an isolated HOME/XDG cold-start gate, service/widget contract tests,
   strict pet schema checks, pinned CI actions, and least-privilege workflow
   permissions.

@@ -798,7 +798,10 @@ function isDrag(movedPx) {
 function peekHeight(petSize) {
   var size = Number(petSize)
   if (!isFinite(size) || size <= 0) size = 56
-  return Math.max(14, Math.round(size * 0.13))
+  // Leave a recognisable piece of the drawing, not merely a hit target.
+  // The extra couple of pixels matter most for still silhouettes such as
+  // Quattro, while remaining small enough to count as tucked away.
+  return Math.max(15, Math.round(size * 0.145))
 }
 
 

@@ -229,6 +229,8 @@ Item {
     "    seen.add(ident)\n" +
     "    name = ' '.join(str(data.get('displayName') or data.get('name') or ident).split())[:48] or ident\n" +
     "    out.append({'id': ident, 'name': name, 'dir': os.path.join(base, ident)})\n" +
+    "priority = {'gritty': 0, 'quattro': 1, 'gritty-front': 2, 'glitchcat': 3}\n" +
+    "out.sort(key=lambda pet: (priority.get(pet['id'], 4), pet['name'].casefold(), pet['id'].casefold()))\n" +
     "print(json.dumps(out, ensure_ascii=False))\n"
   Process {
     id: petScan
@@ -1121,6 +1123,10 @@ Item {
   onPetDirCandidatesChanged: root.resetPetState()
 
   property bool spriteOk: false
+  // Manifest lookup is asynchronous. Until it either resolves a real sheet
+  // or exhausts every candidate, render nothing; otherwise the procedural
+  // emergency body flashes for a frame on every shell start.
+  property bool petResolved: false
   property url spriteSource: ""
   property int spriteRows: 9
   // Two ways to wear a theme, one intent. A pet that names its own hue
@@ -1130,6 +1136,11 @@ Item {
   property real petTint: 0
   readonly property real spriteTint: cfgTheme
     ? Model.tintFor(spriteThemeable, redrawCovered, petTint) : 0
+  readonly property var spriteTintRgb: Model.liveTintColor(
+    { r: Color.accent.r, g: Color.accent.g, b: Color.accent.b },
+    { r: Color.background.r, g: Color.background.g, b: Color.background.b })
+  readonly property real spriteTintBrightness: Model.liveTintBrightness(
+    { r: Color.background.r, g: Color.background.g, b: Color.background.b }, spriteTint)
   property int spriteSleepRow: -1
   property int spriteWalkFrames: 0
   // A pet that declares which of its hues are "skin" can be dressed in the
@@ -1173,6 +1184,7 @@ Item {
     petFallback.stop()
     redressTimer.stop()
     redressGiveUp.stop()
+    backgroundRedress.stop()
     root.failedPetIndex = -1
     if (root.activeChief) {
       root.activeChief.activity = null
@@ -1180,9 +1192,14 @@ Item {
     }
     root.redressing = false
     root.wornBefore = ""
-    root.repaintPetId = ""
+    root.settledCoat = ""
+    root.settledCoatTint = 0
+    root.settledCoatTintRgb = ({ r: 1, g: 1, b: 1 })
+    root.settledCoatBrightness = 0
     root.redressQueued = false
+    root.themeRequestSerial++
     root.spriteOk = false
+    root.petResolved = false
     root.spriteSource = ""
     root.spriteBaseSource = ""
     root.spritePetId = ""
@@ -1228,6 +1245,7 @@ Item {
   function rejectPet(message) {
     if (message) console.warn("omarchief:", message)
     root.spriteOk = false
+    root.petResolved = false
     root.failedPetIndex = root.petDirIndex
     petFallback.restart()
   }
@@ -1237,6 +1255,7 @@ Item {
     onTriggered: {
       if (root.failedPetIndex !== root.petDirIndex) return
       if (root.petDirIndex < root.petDirCandidates.length - 1) root.petDirIndex++
+      else root.petResolved = true
     }
   }
 
@@ -1283,6 +1302,7 @@ Item {
         root.spriteThemeable = pet.themeable === true ? ({}) : (Model.isThemeableSpec(pet.themeable) ? pet.themeable : null)
         root.spriteBaseSource = Util.fileUrl(dir + "/" + sheet)
         root.spriteOk = true
+        root.petResolved = true
         themeStamp.reload()
       } catch (e) {
         root.rejectPet("ignoring bad pet.json: " + e)
@@ -1305,7 +1325,13 @@ Item {
   // switching between themes the creature has already worn should not. The
   // sheet for the old accent stays on disk, so switching back is a stat and
   // a stamp write, nothing more.
+  // Cache geometry is release geometry. Including the plugin version keeps
+  // an older orientation or atlas layout from ever becoming a transition
+  // frame after an upgrade.
+  readonly property string themeCacheVersion: String(manifest.version || "0")
+    .replace(/[^A-Za-z0-9._-]/g, "_")
   readonly property string themedSheet: themedDir + "/" + spritePetId + "-"
+    + themeCacheVersion + "-"
     + accentHex.replace("#", "").toLowerCase() + "-"
     + backgroundHex.replace("#", "").toLowerCase() + ".webp"
   readonly property string accentHex: String(Color.accent)
@@ -1331,51 +1357,67 @@ Item {
   // accent on screen, the artwork as drawn otherwise. The revision in the
   // URL is what makes Qt re-read a file it has already cached.
   readonly property bool themedUsable: cfgTheme && spriteThemeable !== null && Model.themeStampMatches(themedAccent, accentHex, backgroundHex)
-  // Until a redraw is actually available (or deliberately keeping the last
-  // themed sheet on screen), the live tint is the honest fallback. Merely
-  // having ImageMagick installed does not make a failed render usable.
-  readonly property bool holdingThemedSheet: redressing
-    && String(wornBefore).indexOf(Util.fileUrl(themedDir + "/")) === 0
   // This describes what is on screen, not whether ImageMagick happens to be
-  // installed now. A cached/previously themed sheet needs no second live
-  // tint; an original sheet waiting for its first redraw does.
-  readonly property bool redrawCovered: themedUsable || holdingThemedSheet
-  onSpriteBaseSourceChanged: { root.syncSpriteSource(); redressTimer.restart() }
+  // installed. Until the new lossless sheet exists, the original is tinted
+  // live so the visible change can share Omarchy's wallpaper beat.
+  readonly property bool redrawCovered: themedUsable
+  onSpriteBaseSourceChanged: {
+    root.syncSpriteSource()
+    root.rememberCurrentCoat()
+    redressTimer.restart()
+  }
   onThemedUsableChanged: { root.syncSpriteSource(); statusWrite.restart() }
   onThemedRevisionChanged: root.syncSpriteSource()
-  // Between a theme changing and its sheet being ready there is about a
-  // second, and the creature used to spend it wearing the colours it was
-  // drawn in — undressed, in front of everybody. It keeps the last sheet it
-  // had instead, and changes straight from that to the new one.
+  // `wornBefore` is only the visual source held over the immediate live
+  // preview during Omarchy's 420 ms reveal. `settledCoat` remembers the whole
+  // rendered look, including a fallback tint, so a later theme change never
+  // flashes the raw artist colours.
   property bool redressing: false
   property url wornBefore: ""
-  property string repaintPetId: ""
+  property url settledCoat: ""
+  property real settledCoatTint: 0
+  property var settledCoatTintRgb: ({ r: 1, g: 1, b: 1 })
+  property real settledCoatBrightness: 0
+  function rememberCurrentCoat() {
+    if (String(spriteSource) === "") return
+    // Read the intended rendering directly. QML bindings are allowed to
+    // settle after this JavaScript handler returns; copying `spriteTint`
+    // here could therefore remember the raw sheet for one transition even
+    // though the frame already displayed its live tint.
+    var lossless = themedUsable
+      && String(spriteSource).indexOf(Util.fileUrl(themedSheet)) === 0
+    var strength = cfgTheme ? Model.tintFor(spriteThemeable, lossless, petTint) : 0
+    var accent = { r: Color.accent.r, g: Color.accent.g, b: Color.accent.b }
+    var background = { r: Color.background.r, g: Color.background.g, b: Color.background.b }
+    var c = Model.liveTintColor(accent, background)
+    settledCoat = spriteSource
+    settledCoatTint = strength
+    settledCoatTintRgb = { r: Number(c.r), g: Number(c.g), b: Number(c.b) }
+    settledCoatBrightness = Model.liveTintBrightness(background, strength)
+  }
   Timer {
     id: redressGiveUp
     interval: 8000
-    onTriggered: { root.redressing = false; root.wornBefore = ""; root.syncSpriteSource() }
+    onTriggered: {
+      root.redressing = false
+      root.wornBefore = ""
+      root.syncSpriteSource()
+      root.rememberCurrentCoat()
+    }
   }
 
   function syncSpriteSource() {
-    var oldWasThemed = String(wornBefore).indexOf(Util.fileUrl(themedDir + "/")) === 0
     var next = themedUsable ? Util.fileUrl(themedSheet) + "?v=" + themedRevision
-      : (redressing && String(wornBefore) !== "" ? wornBefore : spriteBaseSource)
+      : spriteBaseSource
     spriteSource = next
-    if (themedUsable && redressing) {
-      redressing = false
-      redressGiveUp.stop()
-      // Two lossless theme coats are the same creature in new colours, so
-      // the new paint rises through the old one. The original sheet was
-      // already shown through the live tint; drawing that raw source over
-      // the first lossless coat would flash the artist's untinted colours.
-      // That first coat — and a genuinely different pet — appears directly.
-      if (String(wornBefore) !== "" && wornBefore !== next
-          && oldWasThemed && spritePetId === repaintPetId
-          && activeChief && activeChief.repaint)
-        activeChief.repaint(wornBefore)
+    if (themedUsable) {
+      if (redressing) {
+        redressing = false
+        redressGiveUp.stop()
+      }
       wornBefore = ""
+      rememberCurrentCoat()
     }
-    repaintPetId = spritePetId
   }
 
   // Redrawing a sheet needs ImageMagick; a system without it still gets a
@@ -1383,6 +1425,9 @@ Item {
   property bool canRedraw: false
   onCanRedrawChanged: if (canRedraw) redressTimer.restart()
   property bool redressQueued: false
+  property int themeRequestSerial: 0
+  property int recolorSerial: -1
+  property string recolorTarget: ""
   Process {
     id: magickProbe
     running: true
@@ -1393,11 +1438,15 @@ Item {
   Process {
     id: recolorProc
     onExited: function(code) {
-      if (code === 0) themeStamp.reload()
-      else {
+      var current = root.recolorSerial === root.themeRequestSerial
+        && root.recolorTarget === root.themedSheet
+        && root.cfgTheme && root.spriteThemeable !== null
+      if (code === 0 && current) themeStamp.reload()
+      else if (code !== 0 && current) {
         root.redressing = false
         root.wornBefore = ""
         root.syncSpriteSource()
+        root.rememberCurrentCoat()
       }
       if (root.redressQueued) {
         root.redressQueued = false
@@ -1413,6 +1462,7 @@ Item {
         && String(spriteSource).indexOf(Util.fileUrl(themedSheet)) === 0) {
       themedAccent = ""
       syncSpriteSource()
+      rememberCurrentCoat()
       // The sheet itself goes too: a file that exists but will not load
       // would satisfy the worn-before fast path forever.
       Quickshell.execDetached(["rm", "-f", themedSheet + ".stamp", themedSheet])
@@ -1438,7 +1488,8 @@ Item {
     // One stamp per sheet, beside it: what it was drawn for and which
     // artwork it came from. A theme worn before is then a single comparison,
     // with nothing to sweep and no way to delete the sheet just written.
-    var stampFile = themedSheet + ".stamp"
+    var targetSheet = themedSheet
+    var stampFile = targetSheet + ".stamp"
     // The stamp names the accent and the artwork's size and age, so a new
     // sheet from an update is redrawn too — not only a new theme. An
     // unchanged stamp costs one stat and no redraw.
@@ -1450,7 +1501,7 @@ Item {
     var cmd = "stamp=" + shq(signature)
       + "; stamp=\"$stamp $(stat -c %s.%Y " + shq(source) + " 2>/dev/null)"
       + " $(stat -c %s.%Y " + shq(tool) + " 2>/dev/null)\""
-      + "; [ \"$(cat " + shq(stampFile) + " 2>/dev/null)\" = \"$stamp\" ] && [ -f " + shq(themedSheet) + " ] && exit 0"
+      + "; [ \"$(cat " + shq(stampFile) + " 2>/dev/null)\" = \"$stamp\" ] && [ -f " + shq(targetSheet) + " ] && exit 0"
       + "; mkdir -p " + shq(themedDir)
       // Sheets for themes not worn in a month, and the scraps of a redraw
       // that was killed mid-write, are not worth the disk.
@@ -1459,7 +1510,7 @@ Item {
       + "; find " + shq(themedDir) + " -maxdepth 1 -name " + shq(spritePetId + "-*.webp.??????")
       + " -mmin +5 -delete 2>/dev/null"
       + "; " + shq(tool)
-      + " " + shq(source) + " " + shq(themedSheet) + " " + shq(accentHex)
+      + " " + shq(source) + " " + shq(targetSheet) + " " + shq(accentHex)
       + " " + shq(String(spec.hueMin !== undefined ? spec.hueMin : 40))
       + " " + shq(String(spec.hueMax !== undefined ? spec.hueMax : 100))
       + " " + shq(String(spec.satMin !== undefined ? spec.satMin : 15))
@@ -1470,6 +1521,8 @@ Item {
       + " && mv -f \"$stamp_tmp\" " + shq(stampFile)
     recolorProc.command = ["bash", "-lc",
       Model.buildGuardedRunner(root.home, ["bash", "-lc", cmd])]
+    recolorTarget = targetSheet
+    recolorSerial = themeRequestSerial
     recolorProc.running = true
   }
 
@@ -1478,14 +1531,27 @@ Item {
   // Small, because a theme the creature has worn before goes on instantly.
   function beginRedress() {
     if (cfgTheme && spriteThemeable !== null && spriteOk && String(spriteSource) !== "") {
-      if (!redressing) wornBefore = spriteSource
+      var previous = String(settledCoat) !== "" ? settledCoat : spriteSource
+      var previousTint = settledCoatTint
+      var previousRgb = settledCoatTintRgb
+      var previousBrightness = settledCoatBrightness
+      themeRequestSerial++
+      wornBefore = previous
       redressing = true
       redressGiveUp.restart()
+      syncSpriteSource()
+      if (activeChief && activeChief.repaint)
+        activeChief.repaint(previous, previousTint, previousRgb, previousBrightness)
+      rememberCurrentCoat()
     }
     redressTimer.restart()
   }
-  onAccentHexChanged: root.beginRedress()
-  onBackgroundHexChanged: root.beginRedress()
+  // Omarchy applies `background` before `accent`, then starts its wallpaper
+  // reveal. An accent change is therefore the exact synchronous trigger. A
+  // background-only palette is coalesced to the next event-loop turn.
+  Timer { id: backgroundRedress; interval: 0; onTriggered: root.beginRedress() }
+  onAccentHexChanged: { backgroundRedress.stop(); root.beginRedress() }
+  onBackgroundHexChanged: backgroundRedress.restart()
   onSpriteThemeableChanged: redressTimer.restart()
   // Short: the palette still arrives channel by channel, but the creature
   // should be wearing the new one before you have finished looking at the
@@ -2281,7 +2347,7 @@ Item {
   onCfgThemeChanged: {
     statusWrite.restart()
     if (cfgTheme) {
-      redressTimer.restart()
+      root.beginRedress()
       return
     }
     // Off means the artist's original sheet now, even when a palette redraw
@@ -2289,12 +2355,15 @@ Item {
     // is enabled again, but it must not stay on screen during that run.
     redressTimer.stop()
     redressGiveUp.stop()
+    backgroundRedress.stop()
     redressQueued = false
+    themeRequestSerial++
     redressing = false
     wornBefore = ""
     if (root.activeChief && root.activeChief.cancelRepaint)
       root.activeChief.cancelRepaint()
     root.syncSpriteSource()
+    root.rememberCurrentCoat()
   }
   onCfgPetChanged: { statusWrite.restart(); scanPets() }
   onSpriteOkChanged: statusWrite.restart()
@@ -2734,6 +2803,7 @@ Item {
         sourceComponent: Chief {
           orderMax: root.orderMax
           petSize: root.petSize
+          fullScreenHeight: modelData.height
           pixelArt: root.spritePixelArt
           mood: root.mood
           energy: root.energy
@@ -2754,7 +2824,8 @@ Item {
           activityChance: root.cfgActivityChance
           activityRestMs: root.cfgActivityRestSec * 1000
           groundOffset: Model.groundOffset(root.gapBottom, root.petSize, 4, 208)
-          active: win.visible
+          active: win.visible && root.petResolved
+          visible: root.petResolved
           promptOpen: root.promptOpen
           submerged: root.submerged
           initialPx: root.spawnLocalX >= 0 ? root.spawnLocalX : root.effectiveHomeX

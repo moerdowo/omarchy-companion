@@ -24,6 +24,7 @@ The table is what is in that archive.
 | `gritty-blink.png` | the resting face with its eyes closed | one render, fitted to the resting face |
 | `gritty-tongue.png` | the tongue-out expression | one render, fitted the same way |
 | `gritty-faces12.png` | `pets/gritty/gritty-faces.webp` | the twelve cells above, montaged 6×2 |
+| `gritty-front.png` | `pets/gritty-front/gritty-front.webp` | high-resolution head-on portrait in its canonical cable orientation |
 | `quattro.png` | `pets/quattro/quattro.webp` | high-resolution cutout of the approved Omarchy-derived still; see `NOTICE` |
 | `NOTICE` | the source archive itself | copyright, licence, provenance, and marks notice; always included |
 
@@ -62,6 +63,23 @@ of its neighbour across the grid. The last two options make the blink and
 tongue deterministic even though their renders came from a different sitting:
 both keep the aligned `idle` body and borrow only their 68 × 68 face panel.
 See [docs/pets.md](../../docs/pets.md).
+
+The archived `gritty-faces12.png` already carries Omarchy's `#9ece6a` green
+as the unthemed shell's reference midtone. Light, shadow, wear, and transparent
+edge pixels remain part of the painting; the build must preserve them rather
+than flattening the body to one literal colour. Runtime theme dressing starts
+from that branded source and `Theme` off returns to it byte-for-byte.
+
+## Gritty's head-on release cell
+
+The head-on portrait is a deliberately separate still companion, not a face
+spliced into the profile atlas. Its release cell is 249 × 208 with the visible
+drawing seated at `239x198+5+5`; the archived source is already horizontally
+oriented as the canonical release cell. `mirror: true` performs the only
+runtime turn, keeping its asymmetric cable on the inward side of the screen.
+Rebuilding it is an art-directed downsample: preserve the source transparency,
+Omarchy-green midtone, red cable, five-pixel safe edge, and inspect it at the
+actual 150 px default before replacing the audited runtime WebP.
 
 ## The blink and the tongue borrow the body
 

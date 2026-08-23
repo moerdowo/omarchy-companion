@@ -134,7 +134,8 @@ Before publishing or preparing a marketplace submission:
 3. On a disposable Omarchy 4 user with no Omarchief config, pets, state,
    or prior scratchpad, install with the README command. Accept the normal
    warning and placement prompt. Require one service, one widget, bundled
-   Gritty on first paint, and exactly `gritty` plus `quattro` in the picker.
+   Gritty at size L on first paint, and exactly `gritty`, `quattro`, then
+   `gritty-front` in the picker.
 4. Exercise every visible action once and every setting twice, including the
    return path, keyboard-only use, a narrow and wide bar, multiple monitors,
    fullscreen avoidance, reduced motion, light/dark theme changes, theme off

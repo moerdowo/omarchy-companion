@@ -213,8 +213,11 @@ ShellRoot {
         var petIds = []
         for (var p = 0; p < service.installedPets.length; p++)
           petIds.push(String(service.installedPets[p].id || ""))
-        petIds.sort()
-        if (petIds.join(",") !== "gritty,quattro") return
+        if (petIds.join(",") !== "gritty,quattro,gritty-front") return
+        if (service.petSize !== 150) {
+          root.fail("fresh Gritty did not use its L recommendation: " + service.petSize)
+          return
+        }
         if (service.worldMonitor === "" || !service.activeChief) return
         var expectedMonitor = service.segments.length === 1
           ? String(service.segments[0].name || "") : String(service.focusedMonName || "")
@@ -232,7 +235,8 @@ ShellRoot {
           return
         }
         console.log("COLDSTART body: sprite pet: gritty source: bundled")
-        console.log("COLDSTART picker: gritty + quattro")
+        console.log("COLDSTART picker: gritty + quattro + gritty-front")
+        console.log("COLDSTART defaults: Gritty + L")
         console.log("COLDSTART placement: active screen + bottom-right home")
         // Exercise the real 3.x migration after proving a clean install. Old
         // setup instructions could leave settings in a file, more than one
@@ -466,8 +470,10 @@ fi
 
 printf '%s\n' "$out" | grep -q 'COLDSTART body: sprite pet: gritty source: bundled' \
   || { echo "coldstart-check: bundled Gritty never became ready" >&2; exit 1; }
-printf '%s\n' "$out" | grep -q 'COLDSTART picker: gritty + quattro' \
+printf '%s\n' "$out" | grep -q 'COLDSTART picker: gritty + quattro + gritty-front' \
   || { echo "coldstart-check: bundled pets never reached the picker" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART defaults: Gritty + L' \
+  || { echo "coldstart-check: fresh companion defaults changed" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q 'COLDSTART migration: legacy duplicates -> one bar entry' \
   || { echo "coldstart-check: legacy settings did not migrate cleanly" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q 'COLDSTART migration: retired file remains sealed on restart' \

@@ -215,10 +215,16 @@ if [[ -n $background ]]; then
       hi = a > b ? a : b; lo = a > b ? b : a
       printf "%.4f\n", (hi + 0.05) / (lo + 0.05) }'
   }
-  weight=$(mktemp "${out}.XXXXXX")
-  trap 'rm -f "$tmp" "$skin" "$encoded" "$weight"' EXIT
-  body_weight "$tmp" "$skin" "png:$weight"
-  read -r cr cg cb < <(creature_colour "$tmp" "$weight")
+  # Decide on the same nearest-neighbour thumbnail the gamma search uses.
+  # Most palettes already clear their floor; decoding and measuring the full
+  # atlas before discovering that fact used to cost most of the reveal.
+  small=$(mktemp "${out}.XXXXXX"); smallskin=$(mktemp "${out}.XXXXXX")
+  smallw=$(mktemp "${out}.XXXXXX")
+  trap 'rm -f "$tmp" "$skin" "$encoded" "$small" "$smallskin" "$smallw"' EXIT
+  magick "$tmp" -sample 25% -depth 8 "miff:$small"
+  magick "$skin" -sample 25% "png:$smallskin"
+  body_weight "$small" "$smallskin" "png:$smallw"
+  read -r cr cg cb < <(creature_colour "$small" "$smallw")
   now=$(ratio_of "$(luminance "$cr" "$cg" "$cb")")
 
   # Figure and ground are told apart by hue, by colour, or by lightness. A
@@ -256,7 +262,8 @@ if [[ -n $background ]]; then
   # hard to see as a dark one on black, and the artwork survives either
   # direction: black stays black, white stays white, and the shading keeps
   # its order.
-  if awk -v n="$now" -v f="$floor" 'BEGIN { exit !(n < f) }'; then
+  aim=$(awk -v f="$floor" 'BEGIN { printf "%.4f", f * 1.02 }')
+  if awk -v n="$now" -v f="$aim" 'BEGIN { exit !(n < f) }'; then
     # The search runs on a thumbnail and only the answer is paid for at full
     # size. It is sampled rather than scaled: averaging the pixels down melts
     # the black outlines into the body and reports a creature half a stop
@@ -265,7 +272,6 @@ if [[ -n $background ]]; then
     # tones honest.
     # A hair past the floor rather than at it, for what the sampling and the
     # encoder still round away.
-    aim=$(awk -v f="$floor" 'BEGIN { printf "%.4f", f * 1.02 }')
     # A perceptual mid-tone is not correctly split at 50% luminance. Choose
     # the endpoint that can produce the stronger contrast against this exact
     # background, then find the least gamma change in that direction.
@@ -276,12 +282,9 @@ if [[ -n $background ]]; then
     else
       up=0; lo=0.0625; hi=1.0
     fi
-    step=$(mktemp "${out}.XXXXXX"); small=$(mktemp "${out}.XXXXXX")
-    smallskin=$(mktemp "${out}.XXXXXX"); smallw=$(mktemp "${out}.XXXXXX")
+    step=$(mktemp "${out}.XXXXXX"); weight=$(mktemp "${out}.XXXXXX")
     trap 'rm -f "$tmp" "$skin" "$encoded" "$weight" "$step" "$small" "$smallskin" "$smallw"' EXIT
-    magick "$tmp" -sample 25% -depth 8 "miff:$small"
-    magick "$skin" -sample 25% "png:$smallskin"
-    body_weight "$small" "$smallskin" "png:$smallw"
+    body_weight "$tmp" "$skin" "png:$weight"
     # Seven thumbnail steps locate the answer closely; one full-size render
     # normally clears it, and the checks below close any sampling gap.
     for _ in 1 2 3 4 5 6 7; do
@@ -320,7 +323,12 @@ if [[ -n $background ]]; then
   fi
 fi
 
-magick "$tmp" -define webp:lossless=true "webp:$encoded"
+# This file is an ephemeral 30-day cache, not a release asset. WebP's default
+# lossless effort spends roughly half a second squeezing a few dozen kilobytes
+# out of Gritty — long enough to miss Omarchy's 420 ms reveal. Method 0 keeps
+# the pixels equally lossless and finishes in a small fraction of that time;
+# a slightly larger cache is the invisible, correct trade.
+magick "$tmp" -define webp:lossless=true -define webp:method=0 "webp:$encoded"
 mv -fT "$encoded" "$out"
 rm -f "$tmp" "$skin" "${weight:-}" "${small:-}" "${smallskin:-}" "${smallw:-}" "${step:-}"
 trap - EXIT

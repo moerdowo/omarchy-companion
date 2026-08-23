@@ -130,7 +130,7 @@ jobs:
       - name: release payload is clean
         run: |
           set -euo pipefail
-          bad=$(git ls-files | grep -E '(^|/)(__pycache__/|.*\.py[co]$|pets/gritty-front/|tools/omarchief-hooks?$|tools/source/.*\.png$|omarchief-artwork-sources\.tar\.gz$)' || true)
+          bad=$(git ls-files | grep -E '(^|/)(__pycache__/|.*\.py[co]$|tools/omarchief-hooks?$|tools/source/.*\.png$|omarchief-artwork-sources\.tar\.gz$)' || true)
           [[ -z $bad ]] || { echo "files excluded from the release are tracked:" >&2; echo "$bad" >&2; exit 1; }
           for pet in pets/*/pet.json; do
             jq -e '(.spritesheetPath | type) == "string"

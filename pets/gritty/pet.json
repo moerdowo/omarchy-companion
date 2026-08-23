@@ -8,6 +8,7 @@
   "columns": 6,
   "size": 150,
   "mirror": true,
+  "themeTint": 0.45,
   "faces": {
     "idle": [
       0,

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import QtQuick.Shapes
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -18,6 +19,10 @@ Item {
   id: pet
 
   property int petSize: 56
+  // The wallpaper reveal spans the complete output while this item occupies
+  // only its bottom interaction strip. Keeping the output height lets the
+  // pet use the exact slice of Omarchy's global reveal mask behind it.
+  property real fullScreenHeight: height
   // Drawn art is scaled with filtering; pixel art keeps its hard pixels.
   property bool pixelArt: false
   // A pet may be a set of expressions rather than a set of animations. One
@@ -45,24 +50,32 @@ Item {
   // A closed-eyes drawing, if the artist made one. A still creature blinks
   // with it every few seconds — the cheapest, most constant sign of life.
   property var blinkFace: null
-  // Being repainted for a new theme. The sheet it wore before is kept for
-  // the length of the change and drawn over the new one, masked to the part
-  // that has not been reached yet — so the colour rises up the creature
-  // instead of the whole of it blinking into another shade.
+  // Being repainted for a new theme. Omarchy reveals its wallpaper through
+  // a lightly slanted band spreading from the centre; the chief changes on
+  // that same beat instead of performing a second, plugin-shaped wipe.
   property url repaintFrom: ""
+  property real repaintTint: 0
+  property var repaintTintRgb: ({ r: 1, g: 1, b: 1 })
+  property real repaintTintBrightness: 0
   property real repaintFill: 1
   function cancelRepaint() {
     repaintRise.stop()
     repaintFrom = ""
+    repaintTint = 0
     repaintFill = 1
   }
-  function repaint(previous) {
+  function repaint(previous, oldTint, oldTintRgb, oldBrightness) {
     if (String(previous) === "" || !spriteOk) return
     if (reduceMotion) {
       cancelRepaint()
       return
     }
     repaintFrom = previous
+    repaintTint = Math.max(0, Math.min(1, Number(oldTint) || 0))
+    if (oldTintRgb && isFinite(Number(oldTintRgb.r))
+        && isFinite(Number(oldTintRgb.g)) && isFinite(Number(oldTintRgb.b)))
+      repaintTintRgb = { r: Number(oldTintRgb.r), g: Number(oldTintRgb.g), b: Number(oldTintRgb.b) }
+    repaintTintBrightness = Number(oldBrightness) || 0
     repaintFill = 0
     repaintRise.restart()
   }
@@ -71,10 +84,10 @@ Item {
     target: pet
     property: "repaintFill"
     to: 1
-    // Quick enough to feel like the colour arriving rather than a wipe
-    // being performed, slow enough to see it arrive.
-    duration: 300
-    easing.type: Easing.OutCubic
+    // Kept identical to Omarchy's background reveal: both animations are
+    // started by the same Color update and therefore share the rendered beat.
+    duration: 420
+    easing.type: Easing.InOutCubic
     onFinished: pet.repaintFrom = ""
   }
 
@@ -288,7 +301,10 @@ Item {
   // of the screen is no answer.
   readonly property real speakX: tucked ? (hit.leftLimit + hit.rightLimit) / 2
                                         : body.x + body.width / 2
-  readonly property real speakTop: tucked ? hit.y : body.y
+  // Anchor speech to the first visible artwork pixel rather than the top of
+  // its transparent atlas cell. Otherwise Gritty pays its internal top inset
+  // on top of the intended popup gap.
+  readonly property real speakTop: tucked ? hit.y : body.y + body.height * contentTop
   function contentFraction(value, fallback) {
     var n = Number(value)
     return isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback
@@ -319,7 +335,7 @@ Item {
   readonly property real sinkFull: Model.sinkShift(body.groundY, body.height, height, peek, contentTop)
   property real tuckDrop: tuckSide !== "down" ? 0
     : hit.shoving ? Math.max(0, Math.min(sinkFull, hit.handDown))
-    : tuckAmount * sinkFull * (pet.peeking ? 0.72 : 1)
+    : tuckAmount * sinkFull * (pet.peeking ? 0.70 : 1)
   // While the hand is on it, it goes where the hand goes — animating that
   // would put it a quarter-second behind your own gesture, which reads as
   // mush. The easing is for letting go: springing back, or settling away.
@@ -339,7 +355,7 @@ Item {
   property real tuckSlide: tuckSide === "down" ? 0
     : hit.shoving ? (tuckSide === "left" ? -Math.min(-slideFull, shoveOver)
                                          : Math.min(slideFull, shoveOver))
-    : tuckAmount * slideFull * (pet.peeking ? 0.78 : 1)
+    : tuckAmount * slideFull * (pet.peeking ? 0.75 : 1)
   Behavior on tuckSlide {
     enabled: !hit.shoving && !pet.reduceMotion
     NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
@@ -771,28 +787,6 @@ Item {
         opacity: vp.bodyOpacity
       }
 
-      // The colours it wore a moment ago, still covering the part of it the
-      // new ones have not reached. Clipped from the top down, so the new
-      // paint appears to rise from the feet.
-      Item {
-        id: paintOver
-        visible: pet.repaintFrom !== "" && pet.repaintFill < 1
-        width: vp.width
-        height: Math.round(vp.height * (1 - pet.repaintFill))
-        clip: true
-        opacity: vp.bodyOpacity
-        Image {
-          source: pet.repaintFrom
-          width: vp.width * pet.columns
-          height: vp.height * pet.spriteRows
-          x: -vp.cellCol * vp.width
-          y: -vp.cellRow * vp.height
-          smooth: !pet.pixelArt
-          mipmap: !pet.pixelArt
-          asynchronous: true
-          cache: true
-        }
-      }
       // The theme-dressed twin. Qt multiplies its colorization target by the
       // source grayscale. Dark ground gets a small measured lift; blackward
       // colourization needs none, which keeps the drawing's shadows intact.
@@ -808,6 +802,89 @@ Item {
         brightness: pet.tintBrightness
         // MultiEffect samples before the source Image's opacity.
         opacity: vp.bodyOpacity
+      }
+
+      // The colours it wore a moment ago cover everything outside the same
+      // centre-out, lightly slanted reveal used by Omarchy's wallpaper. The
+      // old coat may itself have been a live tint, so retain that shader too:
+      // the no-ImageMagick path must not flash the raw artist colours.
+      Item {
+        id: paintOver
+        visible: pet.repaintFrom !== "" && pet.repaintFill < 1
+        width: vp.width
+        height: vp.height
+        clip: true
+        opacity: vp.bodyOpacity
+        layer.enabled: visible
+        layer.smooth: true
+        layer.effect: MultiEffect {
+          maskEnabled: true
+          maskSource: repaintMask
+          maskInverted: true
+          maskThresholdMin: 0.5
+          maskSpreadAtMin: 0.02
+        }
+        Image {
+          id: oldSheet
+          source: pet.repaintFrom
+          width: vp.width * pet.columns
+          height: vp.height * pet.spriteRows
+          x: -vp.cellCol * vp.width
+          y: -vp.cellRow * vp.height
+          smooth: !pet.pixelArt
+          mipmap: !pet.pixelArt
+          asynchronous: true
+          cache: true
+          visible: pet.repaintTint <= 0
+        }
+        MultiEffect {
+          visible: pet.repaintTint > 0
+          source: oldSheet
+          x: oldSheet.x
+          y: oldSheet.y
+          width: oldSheet.width
+          height: oldSheet.height
+          colorization: pet.repaintTint
+          colorizationColor: Qt.rgba(pet.repaintTintRgb.r, pet.repaintTintRgb.g, pet.repaintTintRgb.b, 1)
+          brightness: pet.repaintTintBrightness
+        }
+      }
+
+      Item {
+        id: repaintMask
+        width: vp.width
+        height: vp.height
+        visible: false
+        layer.enabled: true
+
+        readonly property real slant: -0.18
+        readonly property real screenY: Math.max(0, pet.fullScreenHeight - pet.height)
+        readonly property real desiredTop: pet.width / 2
+          + slant * (screenY + body.y - pet.fullScreenHeight / 2) - body.x
+        readonly property real desiredBottom: pet.width / 2
+          + slant * (screenY + body.y + body.height - pet.fullScreenHeight / 2) - body.x
+        // `body` mirrors all its children. Reflect the mask coordinates first
+        // so their on-screen result remains the same global wallpaper slice.
+        readonly property real centerTop: pet.mirrored ? width - desiredTop : desiredTop
+        readonly property real centerBottom: pet.mirrored ? width - desiredBottom : desiredBottom
+        readonly property real reach: pet.width / 2
+          + Math.abs(slant) * pet.fullScreenHeight / 2 + 4
+        readonly property real spread: reach * pet.repaintFill
+
+        Shape {
+          anchors.fill: parent
+          antialiasing: true
+          preferredRendererType: Shape.CurveRenderer
+          ShapePath {
+            fillColor: "white"
+            strokeColor: "transparent"
+            startX: repaintMask.centerTop - repaintMask.spread; startY: 0
+            PathLine { x: repaintMask.centerTop + repaintMask.spread; y: 0 }
+            PathLine { x: repaintMask.centerBottom + repaintMask.spread; y: repaintMask.height }
+            PathLine { x: repaintMask.centerBottom - repaintMask.spread; y: repaintMask.height }
+            PathLine { x: repaintMask.centerTop - repaintMask.spread; y: 0 }
+          }
+        }
       }
     }
   }
@@ -945,7 +1022,7 @@ Item {
                     Math.max(Math.min(pet.overlayWidthCap, Style.space(72)), desiredWidth))
     height: sayContent.implicitHeight + Style.space(16)
     x: pet.overlayX(width)
-    y: pet.overlayY(height, Style.space(12))
+    y: pet.overlayY(height, Style.space(6))
 
     Accessible.role: actionable ? Accessible.Button : Accessible.StaticText
     Accessible.ignored: !visible
@@ -1116,7 +1193,7 @@ Item {
     }
     width: pet.overlayWidthCap
     x: pet.overlayX(width)
-    y: pet.overlayY(height, Style.space(12))
+    y: pet.overlayY(height, Style.space(6))
     foreground: Color.popups.text
     accent: Color.accent
     placeholderText: pet.placeholder

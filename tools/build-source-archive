@@ -9,7 +9,7 @@ Usage:
   tools/build-source-archive [output.tar.gz]
   tools/build-source-archive --check archive.tar.gz
 
-Builds the seven-file omarchief-artwork-sources.tar.gz release asset. The
+Builds the eight-file omarchief-artwork-sources.tar.gz release asset. The
 default output is ${TMPDIR:-/tmp}/omarchief-artwork-sources.tar.gz. --check
 rebuilds the archive and requires it to match byte for byte.
 USAGE
@@ -23,6 +23,7 @@ members=(
   tools/source/gritty-blink.png
   tools/source/gritty-faces.png
   tools/source/gritty-faces12.png
+  tools/source/gritty-front.png
   tools/source/gritty-tongue.png
   tools/source/quattro.png
 )

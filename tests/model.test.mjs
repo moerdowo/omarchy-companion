@@ -1045,12 +1045,13 @@ test("a pet drawn as one picture has nothing to look up with", () => {
 })
 
 test("what is left showing is drawing, not the margin around it", () => {
-  assert.equal(M.peekHeight(190), 25)
-  assert.equal(M.peekHeight(56), 14, "small pets keep a usable handle")
-  assert.equal(M.peekHeight(0), 14)
+  assert.equal(M.peekHeight(190), 28)
+  assert.equal(M.peekHeight(150), 22, "the default still shows a recognisable face")
+  assert.equal(M.peekHeight(56), 15, "small pets keep a usable handle")
+  assert.equal(M.peekHeight(0), 15)
   // gritty's resting picture stops well short of its cell on the right, so
   // the shift is measured to the drawing's own edge
-  const bw = 188, right = 0.8495, left = 0.0534, W = 2560, peek = 25
+  const bw = 188, right = 0.8495, left = 0.0534, W = 2560, peek = 28
   const bodyX = 63 - bw / 2
   const left_shift = M.sideTuckShift(bodyX, bw, W, peek, left, right, "left")
   assert.equal(Math.round(bodyX + left_shift + bw * right), peek,

@@ -103,7 +103,7 @@ Panel {
   ]
   readonly property var sizeOptions: withCustomOption(
     sizePresets,
-    ready ? String(service.petSize) : "130",
+    ready ? String(service.petSize) : "150",
     ready ? "Custom · " + String(service.petSize) + " px" : "")
   readonly property var agentOptions: {
     var desktopAgent = ready ? String(service.defaultAgentId || "") : ""
@@ -816,7 +816,7 @@ Panel {
             id: settingsColumn
             visible: root.view === "settings"
             width: parent.width
-            spacing: Style.space(10)
+            spacing: Style.space(8)
 
             PanelHero {
               id: settingsHero
@@ -1027,7 +1027,7 @@ Panel {
               ButtonGroup {
                 id: sizeGroup
                 options: root.sizeOptions
-                value: service ? String(service.petSize) : "130"
+                value: service ? String(service.petSize) : "150"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 cursorIndex: root.cursorActive && root.focusId === "size" ? root.sizeCursor : -1
