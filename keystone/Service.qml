@@ -2666,7 +2666,7 @@ Item {
   //
   // One strip per monitor, mapped only while the chief is on it. Everything
   // else on that screen clicks straight through; while the order form is
-  // open the whole strip catches the dismissing click.
+  // open its padded route to the chief catches the dismissing click.
 
   Variants {
     model: Quickshell.screens
@@ -2705,7 +2705,19 @@ Item {
         if (wantsKeyboard) { focusPrimed = false; primeTimer.restart() }
         else primeTimer.stop()
       }
-      Timer { id: primeTimer; interval: 90; onTriggered: win.focusPrimed = true }
+      Timer {
+        id: primeTimer
+        interval: 90
+        onTriggered: {
+          win.focusPrimed = true
+          // The field focused once when it appeared. Confirm it after the
+          // Exclusive -> OnDemand handoff too, so timing can never leave a
+          // visible prompt without a caret or keyboard input.
+          Qt.callLater(function() {
+            if (chiefLoader.item) chiefLoader.item.focusPrompt()
+          })
+        }
+      }
       WlrLayershell.keyboardFocus: win.wantsKeyboard
         ? (win.focusPrimed ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.Exclusive)
         : WlrKeyboardFocus.None

@@ -605,6 +605,10 @@ Panel {
         id: panelScroll
         anchors.fill: parent
         clip: true
+        // Qt's attached scrollbar overlays the viewport. Reserve a slim
+        // right-hand rail so it stays at the panel edge instead of painting
+        // over cards, dropdowns, and toggles.
+        rightPadding: root.view === "settings" ? Style.space(10) : 0
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
         ScrollBar.vertical.policy: contentBody.implicitHeight > height
           ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff

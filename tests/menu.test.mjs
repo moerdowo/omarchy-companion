@@ -170,6 +170,42 @@ test("overview keeps only actions that add something", () => {
     "Console and Tuck should share the freed row evenly")
 })
 
+test("drag, tuck, and scrolling keep their visual chrome out of the way", () => {
+  const chief = read(chiefPath)
+  assert.doesNotMatch(chief, /pointerFocused/,
+    "pointer interaction must not masquerade as keyboard focus")
+  assert.match(chief,
+    /onPressed:\s*function\(mouse\)\s*\{[\s\S]*?grabX\s*=/,
+    "the pet must still initialise its pointer gesture")
+  assert.doesNotMatch(chief.match(/onPressed:\s*function\(mouse\)\s*\{[\s\S]*?grabX\s*=/)[0],
+    /forceActiveFocus/,
+    "a pointer press must not paint the keyboard focus ring around the pet")
+  assert.match(chief,
+    /readonly property bool peeking:[\s\S]*?promptOpen\s*\|\|\s*sayMode\s*!==\s*""/,
+    "a tucked pet must stay raised while its prompt or reply is visible")
+  assert.match(chief,
+    /function focusPrompt\(\)[\s\S]*?forceActiveFocus\(\)[\s\S]*?cursorVisible:\s*visible\s*&&\s*activeFocus/,
+    "an open prompt must claim focus and show its insertion caret")
+  assert.match(chief,
+    /cursorDelegate:\s*Rectangle\s*\{[\s\S]*?color:\s*Color\.popups\.text[\s\S]*?Qt\.styleHints\.cursorFlashTime/,
+    "the prompt caret must stay visible against every popup theme")
+  assert.match(chief,
+    /onVisibleChanged:[\s\S]*?Qt\.callLater\(function\(\)\s*\{\s*pet\.focusPrompt\(\)\s*\}\)/,
+    "prompt focus must be claimed as soon as the field is laid out")
+  assert.match(chief,
+    /id:\s*promptShield[\s\S]*?z:\s*0[\s\S]*?reach:\s*Style\.space\(16\)[\s\S]*?Math\.min\(ask\.x,\s*hit\.x\)[\s\S]*?enabled:\s*pet\.promptOpen[\s\S]*?acceptedButtons:\s*Qt\.AllButtons[\s\S]*?onClicked:\s*pet\.promptDismissed\(\)/,
+    "the open prompt must shield a padded route from focus-following windows below")
+  assert.match(chief,
+    /Region\s*\{\s*item:\s*promptShield\.enabled\s*\?\s*promptShield\s*:\s*null\s*\}/,
+    "the prompt shield must participate in the layer-shell input mask")
+  assert.match(read(servicePath),
+    /win\.focusPrimed\s*=\s*true[\s\S]*?chiefLoader\.item\.focusPrompt\(\)/,
+    "prompt focus must be confirmed after the layer-shell handoff")
+  assert.match(panel,
+    /rightPadding:\s*root\.view\s*===\s*"settings"\s*\?\s*Style\.space\(10\)\s*:\s*0/,
+    "the settings scrollbar needs a rail beside, not over, the content")
+})
+
 test("every guarded panel action exists on the service", () => {
   const methods = publicFunctions(service)
   const requested = new Set()

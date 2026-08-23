@@ -238,6 +238,17 @@ Item {
 
   function resetDrag() { hit.cancelGesture() }
 
+  // The prompt's window already exists as the chief's transparent strip, so
+  // opening it is a layer-shell focus handoff rather than a new window map.
+  // This idempotent entry point is called once when the field appears and
+  // once when the compositor has completed that handoff.
+  function focusPrompt() {
+    if (!ask.visible) return
+    var placeCursor = !ask.activeFocus
+    ask.forceActiveFocus()
+    if (placeCursor) ask.cursorPosition = ask.length
+  }
+
   onReduceMotionChanged: if (reduceMotion) settleMotion()
   onActiveChanged: if (!active) {
     resetDrag()
@@ -265,7 +276,12 @@ Item {
   // Hovering what is left showing lifts it a little — "yes, still here".
   // Only then: during a shove the pointer is on it by definition, and
   // lifting there would hold it back from the hand pushing it.
-  readonly property bool peeking: tucked && hit.containsMouse && !hit.dragging && hit.peekArmed
+  // Once the tucked chief is being spoken to, keep the same small reveal a
+  // hover earns until the prompt and its answer are both gone. Otherwise the
+  // body sinks away as the pointer moves into the field, leaving the words
+  // visually detached from who is saying them.
+  readonly property bool peeking: tucked && !hit.dragging
+    && (promptOpen || sayMode !== "" || (hit.containsMouse && hit.peekArmed))
   // Where speech and the order form belong. Normally over the creature;
   // put away, over whatever of it is still showing — it can be talked to
   // while it is out of the way, and an answer that appears below the edge
@@ -488,11 +504,7 @@ Item {
       resetDrag()
       walkAnim.stop()
       activity = null
-      focusTimer.restart()
-    } else {
-      focusTimer.stop()
-      ask.focus = false
-    }
+    } else ask.focus = false
   }
 
   SequentialAnimation {
@@ -625,6 +637,8 @@ Item {
     BorderSurface {
       anchors.fill: parent
       anchors.margins: -Style.space(3)
+      // Pointer presses never take focus; this is consequently a real
+      // keyboard-navigation ring and never a white drag halo.
       visible: hit.activeFocus
       color: "transparent"
       radius: Style.cornerRadius
@@ -1030,6 +1044,28 @@ Item {
   // order, Escape puts the pen down but keeps the draft. An empty Enter
   // summons the console. The shell-native field owns focus and selection.
 
+  // Keep the route from the tucked chief to its field on this layer. Without
+  // this shield, focus-follows-mouse desktops see the transparent gap as the
+  // application below, take keyboard focus away, and make the prompt flicker
+  // shut. Its padded union is deliberately local rather than full-width:
+  // enough room to approach the long side of the field, no needless modal
+  // strip across the rest of the desktop.
+  MouseArea {
+    id: promptShield
+    z: 0
+    readonly property real reach: Style.space(16)
+    x: Math.max(0, Math.min(ask.x, hit.x) - reach)
+    y: Math.max(0, Math.min(ask.y, hit.y) - reach)
+    width: Math.max(0, Math.min(pet.width,
+      Math.max(ask.x + ask.width, hit.x + hit.width) + reach) - x)
+    height: Math.max(0, Math.min(pet.height,
+      Math.max(ask.y + ask.height, hit.y + hit.height) + reach) - y)
+    enabled: pet.promptOpen
+    acceptedButtons: Qt.AllButtons
+    Accessible.ignored: true
+    onClicked: pet.promptDismissed()
+  }
+
   // Native field fills are translucent because they normally sit on a panel;
   // this single backing surface gives the standalone prompt that panel layer.
   BorderSurface {
@@ -1050,6 +1086,34 @@ Item {
     z: 4
     property bool ownedFocus: false
     visible: pet.promptOpen && pet.onStage
+    // Make readiness unambiguous: a prompt that owns focus always shows the
+    // insertion caret, including the first blink after it appears.
+    cursorVisible: visible && activeFocus
+    cursorDelegate: Rectangle {
+      id: promptCaret
+      width: Math.max(2, Style.space(2))
+      color: Color.popups.text
+      visible: ask.activeFocus && !ask.readOnly
+        && ask.selectionStart === ask.selectionEnd
+
+      Connections {
+        target: ask
+        function onCursorPositionChanged() {
+          promptCaret.opacity = 1
+          caretBlink.restart()
+        }
+      }
+
+      Timer {
+        id: caretBlink
+        running: promptCaret.visible && interval > 0
+        repeat: true
+        interval: Qt.styleHints.cursorFlashTime > 0
+          ? Math.max(250, Qt.styleHints.cursorFlashTime / 2) : 0
+        onTriggered: promptCaret.opacity = promptCaret.opacity > 0 ? 0 : 1
+        onRunningChanged: promptCaret.opacity = 1
+      }
+    }
     width: pet.overlayWidthCap
     x: pet.overlayX(width)
     y: pet.overlayY(height, Style.space(12))
@@ -1071,8 +1135,11 @@ Item {
     }
     Keys.onEscapePressed: pet.promptDismissed()
     onVisibleChanged: {
-      if (visible) focusTimer.restart()
-      else {
+      if (visible) {
+        // Match KeyboardPanel: focus only after visibility and layout have
+        // reached the next event-loop turn.
+        Qt.callLater(function() { pet.focusPrompt() })
+      } else {
         focusLoss.stop()
         ownedFocus = false
       }
@@ -1084,14 +1151,6 @@ Item {
       } else if (ownedFocus && visible) {
         focusLoss.restart()
       }
-    }
-  }
-  Timer {
-    id: focusTimer
-    interval: 90
-    onTriggered: if (ask.visible) {
-      ask.forceActiveFocus()
-      ask.cursorPosition = ask.length
     }
   }
   Timer {
@@ -1196,7 +1255,6 @@ Item {
 
     onPressed: function(mouse) {
       if (mouse.button !== Qt.LeftButton) { pet.petPressed(mouse.button); return }
-      forceActiveFocus()
       grabX = mouse.x + x
       grabY = mouse.y + y
       grabPx = pet.px
@@ -1251,11 +1309,12 @@ Item {
     onExited: peekArmed = true
   }
 
-  // True union of only the currently actionable surfaces. The owning
-  // PanelWindow binds its input mask here instead of widening to this whole
-  // full-width item whenever the prompt opens.
+  // True union of only the currently actionable surfaces. While asking, the
+  // shield owns the padded route between field and chief; everywhere else
+  // the transparent desktop remains click-through.
   Region {
     id: chiefInputRegion
+    Region { item: promptShield.enabled ? promptShield : null }
     Region { item: hit }
     Region { item: bubble.actionable ? bubble : null }
     Region { item: say.actionable ? say : null }
