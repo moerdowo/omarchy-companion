@@ -1,0 +1,17 @@
+Quattro — the rally car
+
+The car is cut from a wallpaper Omarchy ships with its tokyo-night theme,
+`themes/tokyo-night/backgrounds/1-quattro.jpg`, and freed from its
+background for use as a pet. Omarchy is MIT-licensed and that licence
+carries no separate terms for its images:
+
+  Copyright (c) David Heinemeier Hansson
+  https://github.com/basecamp/omarchy — MIT
+
+Which makes it as free to pass on as the rest of this repository, on the
+same terms. The marks visible on the car belong to their owners and are
+in the picture because they were in the wallpaper; nothing here is
+endorsed by any of them.
+
+The `pet.json` beside it, and the theming window it names, are the
+plugin's own work under its MIT licence.

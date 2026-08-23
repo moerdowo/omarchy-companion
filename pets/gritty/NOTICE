@@ -1,0 +1,9 @@
+Gritty — the creature bundled with Omarchief
+
+The renders in this folder and in ../../tools/source/ were made by
+daventhedude for this plugin. They are distributed with it under the
+same MIT terms as the code, so anyone may install, modify and
+redistribute the pet along with the plugin.
+
+The sheet in this folder was assembled from those renders by
+../../tools/build-atlas.py; the renders are the originals.

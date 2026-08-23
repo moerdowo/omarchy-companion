@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Prove the plugin loads from cold, without restarting anybody's desktop.
+#
+# Everything else is tested inside a shell process that has already loaded
+# this plugin dozens of times, which says nothing about how it behaves on a
+# machine that starts it for the first time. This launches a second
+# Quickshell — one that has compiled nothing — points it at the plugin with
+# its windows suppressed, and asks the panel what it managed to read.
+#
+# Usage: tools/coldstart-check [plugin-dir]
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+  cat <<USAGE
+Usage: tools/coldstart-check [plugin-folder]
+
+Load the plugin's QML in a fresh Quickshell and report anything it warns
+about. Defaults to the folder this tool lives in. Exits non-zero when the
+plugin's own QML complains, which is what a release is checked with.
+USAGE
+  exit 0
+fi
+
+set -euo pipefail
+
+plugin=${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+shell_src=${OMARCHY_PATH:-/usr/share/omarchy}/shell
+[[ -d $shell_src ]] || { echo "coldstart-check: no Omarchy shell at $shell_src" >&2; exit 1; }
+command -v quickshell >/dev/null || { echo "coldstart-check: quickshell is required" >&2; exit 1; }
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# The imports resolve against the config root, so the probe has to sit
+# beside the shell's own Commons and Ui.
+cp -r "$shell_src" "$work/shell"
+# The probe reads the plugin's own logic to report what a performance would
+# do, so it needs the file beside it rather than behind an absolute import.
+cp "$plugin/keystone/Model.js" "$work/shell/Model.js"
+cat > "$work/shell/coldstart.qml" <<QML
+import Quickshell
+import QtQuick
+import "Model.js" as Model
+
+ShellRoot {
+  Loader {
+    id: panel
+    source: "file://$plugin/keystone/ChiefPanel.qml"
+    onLoaded: { item.shown = false; report.start() }
+    onStatusChanged: if (status === Loader.Error) { console.log("COLDSTART: panel failed to compile"); giveUp.start() }
+  }
+  Loader {
+    source: "file://$plugin/keystone/BarWidget.qml"
+    onStatusChanged: if (status === Loader.Error) console.log("COLDSTART: bar widget failed to compile")
+  }
+  // Qt.quit() is ignored while the configuration is still loading, so a
+  // compile failure would otherwise sit until the outer timeout.
+  Timer { id: giveUp; interval: 250; onTriggered: Qt.quit() }
+  Timer { interval: 45000; running: true; onTriggered: { console.log("COLDSTART: timed out"); Qt.quit() } }
+
+  // Give the freshly started panel a moment to read everything it depends on
+  // — the pet, the theme, Hyprland's gaps — then say what it found.
+  Timer {
+    id: report
+    interval: 6000
+    onTriggered: {
+      var p = panel.item
+      console.log("COLDSTART body:", p.spriteOk ? "sprite" : "blob",
+                  "rows:", p.spriteRows, "activities:", p.spriteActivities.length,
+                  "still:", p.spriteStillRows.length, "walk:", p.spriteWalkFrames)
+      console.log("COLDSTART world:", p.worldMonitor, "screens:", p.segments.length,
+                  "gap:", p.gapBottom, "home:", p.effectiveHomeX,
+                  "agent:", p.agentId === "" ? "none" : p.agentId)
+      // Read from the pet the plugin just loaded rather than from whatever
+      // a long-lived shell still holds in its cache.
+      if (p.spriteFaces) {
+        var moods = ["idle", "parked", "working", "waiting", "success", "error", "tired", "sleeping", "dragged"]
+        var line = ""
+        for (var i = 0; i < moods.length; i++)
+          line += (i ? " " : "") + moods[i] + "=" + JSON.stringify(Model.faceFor(moods[i], p.spriteFaces))
+        console.log("COLDSTART still pet, columns:", p.spriteColumns, "faces:", line)
+      }
+      for (var j = 0; j < p.spriteActivities.length; j++) {
+        var a = p.spriteActivities[j]
+        var one = Model.activityDuration(a, 560)
+        console.log("COLDSTART act", a.name + ":", (one / 1000).toFixed(1) + "s",
+                    "x" + Model.activityRepeats(a, 9000, one),
+                    "fade", Model.crossfadeMs(a.holds ? a.holds[0] : 560) + "ms")
+      }
+      Qt.quit()
+    }
+  }
+}
+QML
+
+out=$(timeout 40 quickshell -p "$work/shell/coldstart.qml" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
+echo "$out" | grep -E 'COLDSTART|omarchief:' || true
+
+# A fresh process compiles what is on disk, which makes this the one place
+# a binding mistake in the QML shows up honestly. Warnings about the plugin's
+# own files are failures; the duplicate-IPC one is not — every bar on a
+# multi-monitor desktop registers the same target, first-party ones included.
+own=$(echo "$out" | grep 'WARN' | grep "$plugin" | grep -v 'another handler is registered' || true)
+if [[ -n $own ]]; then
+  echo "$own" | sed 's/^/  /'
+  echo "coldstart-check: the plugin's own QML warned" >&2
+  exit 1
+fi
+
+if echo "$out" | grep -q 'failed to compile'; then
+  echo "coldstart-check: FAILED" >&2
+  exit 1
+fi
+echo "$out" | grep -q 'COLDSTART world:' || { echo "coldstart-check: the panel never reported" >&2; exit 1; }
+echo "coldstart-check: ok"

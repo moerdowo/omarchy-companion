@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Put the chief's hooks into Claude Code's settings, or take them out.
+
+    omarchief-hooks install [agent]   add them (idempotent)
+    omarchief-hooks remove  [agent]   take out everything we added, nothing else
+    omarchief-hooks status            print "installed" or "absent"
+
+This edits ~/.claude/settings.json, which is somebody else's file: only the
+entries whose command names omarchief-hook are ever touched, the first
+edit leaves a .omarchief-bak beside it, and the write is atomic.
+"""
+import json, os, sys, tempfile
+
+HOME = os.path.expanduser("~")
+SETTINGS = os.path.join(HOME, ".claude", "settings.json")
+HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "omarchief-hook")
+EVENTS = ["UserPromptSubmit", "PreToolUse", "Notification", "Stop", "SessionEnd"]
+MARK = "omarchief-hook"
+
+
+def load():
+    try:
+        with open(SETTINGS) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+
+def ours(entry):
+    for h in (entry or {}).get("hooks", []) or []:
+        if MARK in str((h or {}).get("command", "")):
+            return True
+    return False
+
+
+def installed(d):
+    hooks = d.get("hooks") or {}
+    return all(any(ours(e) for e in (hooks.get(ev) or [])) for ev in EVENTS)
+
+
+def save(d):
+    os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
+    bak = SETTINGS + ".omarchief-bak"
+    if os.path.exists(SETTINGS) and not os.path.exists(bak):
+        with open(SETTINGS) as f, open(bak, "w") as g:
+            g.write(f.read())
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(SETTINGS), prefix=".settings.")
+    with os.fdopen(fd, "w") as f:
+        json.dump(d, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, SETTINGS)
+
+
+def install(agent):
+    d = load()
+    hooks = d.setdefault("hooks", {})
+    for ev in EVENTS:
+        lst = hooks.setdefault(ev, [])
+        lst[:] = [e for e in lst if not ours(e)]
+        lst.append({"matcher": "*", "hooks": [
+            # Guarded so that removing the plugin cannot break the agent:
+            # the hook entry outlives the files it points at, and an agent
+            # that runs a missing command on every event is a worse parting
+            # gift than a stale line in a settings file.
+            {"type": "command",
+             "command": f"test -x '{HOOK}' && bash '{HOOK}' {agent} || true",
+             "timeout": 5}]})
+    save(d)
+
+
+def remove():
+    d = load()
+    hooks = d.get("hooks") or {}
+    for ev in list(hooks.keys()):
+        kept = [e for e in (hooks.get(ev) or []) if not ours(e)]
+        if kept:
+            hooks[ev] = kept
+        else:
+            del hooks[ev]
+    if not hooks and "hooks" in d:
+        del d["hooks"]
+    save(d)
+
+
+def main(argv):
+    cmd = argv[0] if argv else "status"
+    agent = argv[1] if len(argv) > 1 else "claude"
+    if cmd == "install":
+        install(agent)
+    elif cmd == "remove":
+        remove()
+    elif cmd != "status":
+        raise SystemExit(__doc__)
+    print("installed" if installed(load()) else "absent")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

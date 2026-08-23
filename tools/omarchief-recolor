@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# Dress a pet spritesheet in a theme colour.
+#
+# Only the sprite's themeable skin is touched: the pixels whose hue falls in
+# the pet's declared window. Everything outside it — cables, servos, boots,
+# the whites of its eyes — is left exactly as drawn, which is what keeps the
+# character recognisable across themes.
+#
+# Within the window the artwork's own lightness survives untouched; only the
+# hue is replaced and the saturation is scaled toward the theme colour's. A
+# monochrome theme therefore yields a monochrome pet and a vivid one a vivid
+# pet, both with the artist's shading intact.
+#
+# Given the desktop background as well, the finished sheet is then lifted
+# until the creature clears the contrast floor WCAG asks of graphics, 3:1.
+# Most themes accent with a mid tone on a near-black desktop, which recolours
+# a bright pet into a dim smudge; the lift is applied to lightness alone, as
+# a gamma, so hue and saturation are untouched, black stays black, white
+# stays white, and the artist's shading keeps its order — nothing clips.
+#
+# Usage: omarchief-recolor <source-sheet> <out.webp> <#rrggbb> [hueMin hueMax satMin] [#background]
+set -euo pipefail
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+  cat <<USAGE
+Usage: omarchief-recolor <sheet> <out.webp> <#accent> [hueMin hueMax satMin] [#background]
+
+Dress a pet's spritesheet in a theme colour. Only the hues inside the
+window count as its skin; everything else is left exactly as drawn.
+
+Given the desktop's background as well, the finished sheet is then fitted
+in lightness — lifted on a dark desktop, deepened on a pale one — until
+the creature's body clears the contrast a graphic owes its surroundings.
+Set OMARCHIEF_CONTRAST_FLOOR to override the ratio it aims for.
+USAGE
+  exit 0
+fi
+
+src=${1:?source sheet required}
+out=${2:?output path required}
+accent=${3:?accent colour required}
+hue_min=${4:-40}
+hue_max=${5:-100}
+sat_min=${6:-15}
+background=${7:-}
+# WCAG asks 3:1 of a graphic. That assumes the graphic has a shape and a
+# colour of its own to be told apart by; where it does not, more is needed —
+# see the floor worked out below.
+floor=${OMARCHIEF_CONTRAST_FLOOR:-}
+
+command -v magick >/dev/null || { echo "omarchief-recolor: ImageMagick (magick) is required" >&2; exit 1; }
+[[ -f $src ]] || { echo "omarchief-recolor: no such sheet: $src" >&2; exit 1; }
+
+# HSL channels of the accent: hue as a 0-255 grey, saturation as a fraction.
+read -r target_hue target_sat < <(
+  magick xc:"$accent" -colorspace HSL -format "%[fx:round(255*u.r)] %[fx:u.g]\n" info:
+)
+
+# How much of the artwork's vividness survives. Scaling it by the accent's
+# own saturation — the obvious reading of "wear the theme" — turns a neon
+# character into wet cardboard on the many themes whose accent is a muted
+# mid-tone, and worse, paints it in the same washed hue as the desktop it
+# stands on. What the theme really lends is its hue; the artist's vividness
+# is what makes the drawing read at all, so it is kept whole for any accent
+# with colour in it and only surrendered as the accent approaches grey —
+# where a vivid creature would be a lie about the theme, and where hue has
+# no meaning left anyway.
+sat_factor=$(awk -v t="$target_sat" 'BEGIN {
+  f = t / 0.4; if (f > 1) f = 1
+  printf "%.4f", f }')
+
+hue_min_pct=$(awk -v v="$hue_min" 'BEGIN { printf "%.4f", 100 * v / 360 }')
+hue_max_pct=$(awk -v v="$hue_max" 'BEGIN { printf "%.4f", 100 * v / 360 }')
+
+# One pass, one decode. Splitting this into a dozen invocations meant
+# reading and re-encoding three megapixels a dozen times over, which is
+# what made a theme switch something you could watch happen.
+#
+# Clones, in order: the alpha channel; the themeable mask (hue inside the
+# window and saturated enough to be skin); a solid plane of the target hue;
+# the artwork's saturation scaled toward the target. The hue and saturation
+# channels are then composited through the mask, recombined with the
+# untouched lightness — where the artist's shading lives — and the original
+# alpha is put back.
+# Written aside and moved into place, because the creature is watching the
+# file: a half-finished sheet is a broken image to whoever loads it, and the
+# reload that follows arrives while the next write is still going.
+tmp=$(mktemp "${out}.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+magick "$src" \
+  \( +clone -alpha extract -write MPR:alpha +delete \) \
+  -alpha off -colorspace HSL \
+  \( +clone -channel R -separate +channel -write MPR:hue \
+     -threshold "${hue_min_pct}%" -write MPR:above +delete \) \
+  \( MPR:hue -threshold "${hue_max_pct}%" -negate -write MPR:below +delete \) \
+  \( +clone -channel G -separate +channel -write MPR:sat \
+     -threshold "${sat_min}%" MPR:above -compose Multiply -composite \
+     MPR:below -compose Multiply -composite -write MPR:mask +delete \) \
+  \( +clone -channel B -separate +channel -write MPR:lit +delete \) \
+  -delete 0 \
+  \( MPR:hue \( MPR:hue -fill "gray($target_hue)" -colorize 100 \) MPR:mask -compose over -composite \) \
+  \( MPR:sat \( MPR:sat -evaluate Multiply "$sat_factor" \) MPR:mask -compose over -composite \) \
+  MPR:lit \
+  -set colorspace HSL -combine -colorspace sRGB \
+  MPR:alpha -alpha off -compose CopyOpacity -composite \
+  -define webp:lossless=false -quality 92 \
+  "webp:$tmp"
+
+# ---------------------------------------------------------------- contrast
+#
+# The creature's own colour is the mean of what is drawn, weighted by how
+# opaque it is, so antialiased edges count for what they are worth.
+
+# What has to be seen is the creature's body, not the average of everything
+# drawn. Outlines and the dark screen of its face are meant to be black and
+# stay black however the sheet is lifted; averaging them in drags the number
+# below anything a lift can reach and would only bleach the body chasing it.
+# The weight is therefore opacity times "is not one of the dark parts", taken
+# once from the artwork as drawn so the region under measurement holds still.
+body_weight() {
+  magick "$1" \
+    \( +clone -alpha extract -write MPR:opacity +delete \) \
+    -alpha off -colorspace HSL -channel B -separate +channel -threshold 25% \
+    MPR:opacity -compose Multiply -composite -alpha off "$2"
+}
+
+creature_colour() {
+  local f=$1 w=$2 wm rm gm bm
+  wm=$(magick "$w" -format "%[fx:mean]\n" info:)
+  read -r rm gm bm < <(
+    magick "$f" -alpha off "$w" -compose Multiply -composite \
+      -format "%[fx:mean.r] %[fx:mean.g] %[fx:mean.b]\n" info:
+  )
+  awk -v a="$wm" -v r="$rm" -v g="$gm" -v b="$bm" \
+    'BEGIN { if (a <= 0) print 0, 0, 0; else printf "%.6f %.6f %.6f\n", r/a, g/a, b/a }'
+}
+
+# WCAG relative luminance, and the ratio between two of them.
+luminance() {
+  awk -v r="$1" -v g="$2" -v b="$3" 'function l(v) {
+      return v <= 0.03928 ? v / 12.92 : exp(2.4 * log((v + 0.055) / 1.055))
+    } BEGIN { printf "%.6f\n", 0.2126 * l(r) + 0.7152 * l(g) + 0.0722 * l(b) }'
+}
+
+lighten() {   # $1 in, $2 gamma on lightness, $3 out
+  magick "$1" \( +clone -alpha extract -write MPR:keep +delete \) \
+    -alpha off -colorspace HSL -channel B -gamma "$2" +channel -colorspace sRGB \
+    MPR:keep -alpha off -compose CopyOpacity -composite \
+    -define webp:lossless=false -quality 92 "webp:$3"
+}
+
+if [[ -n $background ]]; then
+  read -r br bg_ bb < <(magick xc:"$background" -format "%[fx:u.r] %[fx:u.g] %[fx:u.b]\n" info:)
+  bg_lum=$(luminance "$br" "$bg_" "$bb")
+  ratio_of() {   # luminance -> contrast against the desktop
+    awk -v a="$1" -v b="$bg_lum" 'BEGIN {
+      hi = a > b ? a : b; lo = a > b ? b : a
+      printf "%.4f\n", (hi + 0.05) / (lo + 0.05) }'
+  }
+  weight=$(mktemp "${out}.XXXXXX")
+  trap 'rm -f "$tmp" "$weight"' EXIT
+  body_weight "$tmp" "png:$weight"
+  read -r cr cg cb < <(creature_colour "$tmp" "$weight")
+  now=$(ratio_of "$(luminance "$cr" "$cg" "$cb")")
+
+  # Figure and ground are told apart by hue, by colour, or by lightness. A
+  # theme whose accent is a brighter shade of its own wallpaper — and a
+  # surprising number are, since that is what makes a palette feel of a
+  # piece — offers the creature none of the first, so the last has to carry
+  # it alone and 3:1 is not enough. Where the desktop is a neutral, hue was
+  # never going to separate anything and the creature's own colour already
+  # does; the graphics floor stands.
+  hue_of() {
+    awk -v r="$1" -v g="$2" -v b="$3" 'BEGIN {
+      mx = r; if (g > mx) mx = g; if (b > mx) mx = b
+      mn = r; if (g < mn) mn = g; if (b < mn) mn = b
+      d = mx - mn
+      if (d <= 0) { print 0; exit }
+      if (mx == r)      h = (g - b) / d
+      else if (mx == g) h = (b - r) / d + 2
+      else              h = (r - g) / d + 4
+      h = h * 60; while (h < 0) h += 360; while (h >= 360) h -= 360
+      printf "%.2f\n", h }'
+  }
+  if [[ -z $floor ]]; then
+    bg_sat=$(awk -v r="$br" -v g="$bg_" -v b="$bb" 'BEGIN {
+      mx = r; if (g > mx) mx = g; if (b > mx) mx = b
+      mn = r; if (g < mn) mn = g; if (b < mn) mn = b
+      printf "%.4f\n", (mx > 0) ? (mx - mn) / mx : 0 }')
+    gap=$(awk -v a="$(hue_of "$cr" "$cg" "$cb")" -v b="$(hue_of "$br" "$bg_" "$bb")" 'BEGIN {
+      d = a - b; while (d < -180) d += 360; while (d > 180) d -= 360
+      printf "%.2f\n", d < 0 ? -d : d }')
+    floor=$(awk -v gap="$gap" -v s="$bg_sat" 'BEGIN { print (gap < 25 && s > 0.10) ? 4.5 : 3.0 }')
+  fi
+
+  # Lifted on a dark desktop, deepened on a light one — the same gamma on
+  # lightness, read the other way. A pale creature on cream is exactly as
+  # hard to see as a dark one on black, and the artwork survives either
+  # direction: black stays black, white stays white, and the shading keeps
+  # its order.
+  if awk -v n="$now" -v f="$floor" 'BEGIN { exit !(n < f) }'; then
+    # The search runs on a thumbnail and only the answer is paid for at full
+    # size. It is sampled rather than scaled: averaging the pixels down melts
+    # the black outlines into the body and reports a creature half a stop
+    # darker than the one on screen, which on a pale desktop is the whole
+    # difference between legible and not. Nearest-neighbour keeps the
+    # tones honest.
+    # A hair past the floor rather than at it, for what the sampling and the
+    # encoder still round away.
+    aim=$(awk -v f="$floor" 'BEGIN { printf "%.4f", f * 1.02 }')
+    # On a dark desktop the contrast rises with the gamma, on a light one it
+    # falls, so the bracket and the test both turn around. Either way the
+    # answer wanted is the least change that clears the floor.
+    if awk -v b="$bg_lum" 'BEGIN { exit !(b < 0.5) }'; then up=1; lo=1.0; hi=3.2
+    else up=0; lo=0.30; hi=1.0; fi
+    step=$(mktemp "${out}.XXXXXX"); small=$(mktemp "${out}.XXXXXX")
+    smallw=$(mktemp "${out}.XXXXXX")
+    trap 'rm -f "$tmp" "$weight" "$step" "$small" "$smallw"' EXIT
+    magick "$tmp" -sample 25% -define webp:lossless=true "webp:$small"
+    body_weight "$small" "png:$smallw"
+    # Four steps land within a seventh of a stop, and the full-size check
+    # below closes the rest — cheaper than a sixth bisection of a thumbnail.
+    for _ in 1 2 3 4; do
+      mid=$(awk -v a="$lo" -v b="$hi" 'BEGIN { printf "%.4f", (a + b) / 2 }')
+      lighten "$small" "$mid" "$step"
+      got=$(ratio_of "$(luminance $(creature_colour "$step" "$smallw"))")
+      short=$(awk -v g="$got" -v f="$aim" 'BEGIN { print (g < f) ? 1 : 0 }')
+      if [[ $up == 1 ]]; then
+        if [[ $short == 1 ]]; then lo=$mid; else hi=$mid; fi
+      else
+        if [[ $short == 1 ]]; then hi=$mid; else lo=$mid; fi
+      fi
+    done
+    answer=$([[ $up == 1 ]] && echo "$hi" || echo "$lo")
+    lighten "$tmp" "$answer" "$step"
+
+    # The thumbnail is close, not exact, and what ships is the full-size
+    # sheet — so that is what gets measured, against the body as it was
+    # drawn, and nudged further until it truly clears the floor.
+    for _ in 1 2 3; do
+      got=$(ratio_of "$(luminance $(creature_colour "$step" "$weight"))")
+      awk -v g="$got" -v f="$floor" 'BEGIN { exit !(g < f) }' || break
+      answer=$(awk -v a="$answer" -v u="$up" \
+        'BEGIN { printf "%.4f", u == 1 ? a * 1.15 : a * 0.92 }')
+      lighten "$tmp" "$answer" "$step"
+    done
+
+    mv -f "$step" "$tmp"
+    trap 'rm -f "$tmp" "$weight" "$small" "$smallw"' EXIT
+  fi
+fi
+
+mv -f "$tmp" "$out"
+rm -f "${weight:-}" "${small:-}" "${smallw:-}" "${step:-}"
+trap - EXIT

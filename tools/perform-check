@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Do the performances run their full length — every time, not just the first?
+#
+# The shell keeps compiled QML in a cache keyed by URL, and neither
+# rescanPlugins nor reloadConfig drops it, so the running desktop is the
+# worst place to check animation timing: it will happily report on code you
+# replaced an hour ago. This asks the installed plugin instead, through its
+# own status file, which is the one thing that cannot lie about what is
+# actually on screen.
+#
+# Usage: tools/perform-check [rounds]
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+  cat <<USAGE
+Usage: tools/perform-check [rounds]
+
+Ask the installed plugin, through its status file, whether its
+performances run their full length every time — not just the first.
+Defaults to two rounds. A still pet has none, and says so.
+USAGE
+  exit 0
+fi
+
+set -euo pipefail
+rounds=${1:-2}
+command -v omarchy-shell >/dev/null || { echo "perform-check: needs a running Omarchy shell" >&2; exit 1; }
+
+python3 - "$rounds" <<'PY'
+import json, os, subprocess, sys, time
+
+rounds = int(sys.argv[1])
+status = os.path.expanduser("~/.local/state/omarchy/omarchief/status.json")
+
+def read():
+    try:
+        with open(status) as f: return json.load(f)
+    except Exception:
+        return {}
+
+def ipc(*args):
+    return subprocess.run(["omarchy-shell", "omarchief", *args],
+                          capture_output=True, text=True).stdout.strip()
+
+# The pet's performances are named in the refusal you get for asking after
+# one that cannot exist.
+hint = ipc("play", "no-such-performance-exists")
+names = [n.strip() for n in hint.split("try:")[-1].split(",")] if "try:" in hint else []
+if not names:
+    print("perform-check: this pet has no performances to check"); sys.exit(0)
+
+bad = 0
+print(f"  {'performance':14} {'ran for':>8}  passes")
+for rnd in range(rounds):
+    for name in names:
+        for _ in range(240):
+            if ipc("play", name).startswith("playing"): break
+            time.sleep(0.5)
+        else:
+            print(f"  {name:14} {'—':>8}  never started"); bad += 1; continue
+        t0 = time.time()
+        while read().get("activity") != name and time.time() - t0 < 3: time.sleep(0.05)
+        began = read()
+        passes = began.get("activityPasses", 0)
+        where = began.get("monitor")
+        start = time.time()
+        moved = False
+        while True:
+            now = read()
+            if now.get("activity") != name: break
+            if now.get("monitor") != where: moved = True
+            if time.time() - start > 40: break
+            time.sleep(0.05)
+        ran = time.time() - start
+        # A performance is meant to last long enough to be noticed. Short
+        # rows are repeated to get there; a single pass means the repeat
+        # broke, which is exactly how it broke before. A walk to another
+        # screen cutting one short is the creature behaving correctly, not
+        # a fault — say so rather than failing the run.
+        if ran < 8 and moved:
+            print(f"  {name:14} {ran:7.1f}s  x{passes}  interrupted by a walk")
+            continue
+        ok = ran >= 8 and passes >= 1
+        if not ok: bad += 1
+        print(f"  {name:14} {ran:7.1f}s  x{passes}  {'ok' if ok else 'TOO SHORT'}")
+        time.sleep(0.5)
+
+print("perform-check: ok" if bad == 0 else f"perform-check: {bad} performance(s) cut short")
+sys.exit(1 if bad else 0)
+PY

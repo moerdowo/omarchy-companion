@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.daventhedude.omarchief",
+  "name": "Omarchief",
+  "version": "3.38.0",
+  "author": "daventhedude",
+  "license": "MIT",
+  "description": "Your desktop's chief of staff: a creature that sits in the corner and takes orders. Click it, type what you want, and it does the thing and answers in a speech bubble — the console is one right-click away, carrying the same conversation. It wears your theme and tells you how the day is going with its face.",
+  "kinds": [
+    "panel",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "keystone/ChiefPanel.qml",
+    "barWidget": "keystone/BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Omarchief",
+    "description": "Status and controls for the desktop chief: ask, console, send it home or to another screen, have it do something, and see when the agent stops answering.",
+    "category": "AI",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  },
+  "homepage": "https://github.com/daventhedude/omarchief",
+  "repository": "https://github.com/daventhedude/omarchief"
+}

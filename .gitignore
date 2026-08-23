@@ -1,0 +1,4 @@
+
+# The artwork renders ship as a release asset, not in the clone.
+# See tools/source/README.md
+tools/source/*.png

@@ -1,0 +1,59 @@
+name: tests
+on:
+  push: { branches: [main, master] }
+  pull_request:
+jobs:
+  model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: node --test tests/*.test.mjs
+      # The cold-start check needs a Wayland session and the Omarchy shell,
+      # so it belongs on a desktop rather than in CI: tools/coldstart-check
+      # is what a release is checked with.
+
+  manifest:
+    # The same checks the shell makes before it will load this, and the
+    # marketplace before it will list it: valid JSON, the required fields,
+    # entry points that are relative, real, and inside the plugin, and no
+    # symlinks anywhere. Cheap to run, and the failure it prevents is a
+    # plugin that installs and then does nothing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: manifest.json is valid and complete
+        run: |
+          set -euo pipefail
+          jq -e . manifest.json > /dev/null
+          jq -e '.schemaVersion == 1' manifest.json > /dev/null
+          for field in id name version author license description kinds entryPoints; do
+            jq -e --arg f "$field" 'has($f)' manifest.json > /dev/null \
+              || { echo "manifest is missing $field" >&2; exit 1; }
+          done
+          jq -e '.id | test("^[A-Za-z0-9][A-Za-z0-9._-]*$") and (startswith("omarchy.") | not)' \
+            manifest.json > /dev/null
+          jq -e '(.kinds | type) == "array" and (.kinds | length) > 0' manifest.json > /dev/null
+      - name: every entry point exists and stays inside the plugin
+        run: |
+          set -euo pipefail
+          jq -r '.entryPoints | to_entries[] | "\(.key) \(.value)"' manifest.json |
+          while read -r kind path; do
+            case "$path" in
+              /*|*..*) echo "unsafe entry point for $kind: $path" >&2; exit 1 ;;
+            esac
+            [[ -f $path ]] || { echo "missing entry point for $kind: $path" >&2; exit 1; }
+          done
+          jq -e '[.kinds[]] | inside(["panel","bar-widget","overlay","menu","service","bar"])' \
+            manifest.json > /dev/null
+      - name: no symlinks
+        run: |
+          found=$(find . -path ./.git -prune -o -type l -print)
+          [[ -z $found ]] || { echo "symlinks are not allowed: $found" >&2; exit 1; }
+      - name: the pictures the listing needs
+        run: |
+          set -euo pipefail
+          for f in README.md LICENSE preview.png screenshot.png; do
+            [[ -s $f ]] || { echo "missing or empty: $f" >&2; exit 1; }
+          done
