@@ -4,7 +4,7 @@ Your desktop's chief of staff — a small, theme-aware companion that can act
 on an order, carry an agent conversation, and stay one click away in the
 Omarchy bar.
 
-![Omarchief standing at the desktop edge](preview.png)
+![Gritty, Omarchief's default desktop companion](preview.png)
 
 Omarchief is built around Omarchy 4's native plugin architecture: one
 resident service owns the creature and its state, while every bar gets a thin
