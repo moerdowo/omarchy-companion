@@ -2,6 +2,10 @@ name: tests
 on:
   push: { branches: [main, master] }
   pull_request:
+  # A run can be stranded by something outside the code — the account's private
+  # Actions minutes running out, a queue that never drains — and then there is
+  # no way to ask for another without an empty commit. This is that way.
+  workflow_dispatch:
 
 permissions:
   contents: read
