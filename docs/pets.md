@@ -47,6 +47,12 @@ are off for it whatever the settings say. What it does instead of holding a
 pose is animate — the whole character is a silhouette that morphs, and its
 moods are animations rather than cells.
 
+Still does not mean idle, though, and the two were worth separating: a body
+with no legs cannot cross the room but can still do something with itself. A
+drawn pet declares its idle performances in code rather than as atlas rows, and
+they are scheduled by exactly the machinery on this page — the same *how often*
+and *how long it rests*, the same Play button, the same `play <name>`.
+
 Adding a second renderer would mean a second `keystone/<Name>Body.qml` and a
 branch beside `bloub` in `Service.qml` and `Chief.qml`. The pet format has
 room for it; nothing else here needs to change.

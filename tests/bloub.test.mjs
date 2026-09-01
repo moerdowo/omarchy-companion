@@ -155,6 +155,145 @@ test("an idle glance never carries news, and never repeats what is worn", () => 
   assert.equal(seen.size, B.IDLE_EXPRESSIONS.length)
 })
 
+/* ----------------------------------------------------- standby performances */
+
+test("a performance is a real state held for a sane length of time", () => {
+  assert.ok(B.PERFORMANCES.length >= 6)
+  const names = B.PERFORMANCES.map((p) => p.name)
+  assert.equal(new Set(names).size, names.length)
+  for (const performance of B.PERFORMANCES) {
+    const state = B.STATE_BY_ID[performance.state]
+    assert.ok(state, `${performance.name} names no state`)
+    assert.match(performance.name, /^[a-z]+$/)
+    // Cut before it resolves and the animation is a fragment: the "!" never
+    // comes back, the body stays burst. Those lengths are read off the state's
+    // own constants, so this is a real floor and not a preference.
+    if (state.minDuration !== undefined) {
+      assert.ok(performance.seconds >= state.minDuration,
+        `${performance.name} is ${performance.seconds}s, under ${state.minDuration}s`)
+    }
+    assert.ok(performance.seconds >= 1.2 && performance.seconds <= 20, performance.name)
+  }
+})
+
+test("a performance never says something is happening", () => {
+  // These four states are how the plugin reports work, waiting, failure and
+  // success. A creature that played one for its own amusement would be crying
+  // wolf, and the next real one would not be believed.
+  const news = new Set(["thinking", "notify", "alert", "burst", "exclaim"])
+  for (const performance of B.PERFORMANCES) {
+    assert.ok(!news.has(performance.state), `${performance.name} performs the news`)
+  }
+  // and every mood that has news maps to one of exactly those
+  for (const mood of ["working", "waiting", "error", "success"]) {
+    assert.ok(news.has(B.stateForMood(mood)), mood)
+  }
+})
+
+test("the repertoire covers looking up, sleeping, and changing shape", () => {
+  const byName = Object.fromEntries(B.PERFORMANCES.map((p) => [p.name, p]))
+  // looking at whoever is at the desk keeps the resting body and face, so the
+  // chosen shape and expression survive it
+  assert.equal(byName.notice.state, "idle")
+  assert.equal(B.STATE_BY_ID.idle.baseBody, true)
+  assert.equal(B.STATE_BY_ID.idle.baseFace, true)
+  // sleeping is the one whose point is that nothing happens, so it is the
+  // longest by a clear margin rather than a blink that reads as a glitch
+  assert.equal(byName.doze.state, "sleep")
+  const others = B.PERFORMANCES.filter((p) => p.name !== "doze").map((p) => p.seconds)
+  assert.ok(byName.doze.seconds >= Math.max(...others) * 2)
+  // and there is more than one thing to do besides those two
+  assert.ok(B.PERFORMANCES.length - 2 >= 4)
+})
+
+test("performances are handed over as the activity tracks the plugin schedules", () => {
+  const tracks = B.performanceTracks()
+  assert.equal(tracks.length, B.PERFORMANCES.length)
+  for (const track of tracks) {
+    // Model.activityDuration multiplies frames by holds, so one frame held for
+    // the whole performance is how a drawn one states its length to code that
+    // was written for spritesheets.
+    assert.equal(track.frames, 1)
+    assert.equal(track.holds.length, 1)
+    assert.equal(M.activityDuration(track, 560), track.holds[0])
+    assert.equal(M.activityDuration(track, 560) / 1000, B.performanceSeconds(track.name))
+  }
+  // and the scheduler can actually pick one, without repeating the last
+  const picked = M.pickActivity(() => 0, tracks, 1, tracks[0].name)
+  assert.ok(picked && picked.name !== tracks[0].name)
+})
+
+test("an unknown performance rests rather than throwing", () => {
+  assert.equal(B.performanceState("nonsense"), "idle")
+  assert.equal(B.performanceState("constructor"), "idle")
+  assert.equal(B.performanceState(""), "idle")
+  assert.equal(B.performanceSeconds("nonsense"), 0)
+})
+
+test("looking up at you starts and ends holding nothing", () => {
+  const seconds = B.performanceSeconds("notice")
+  // The rule that makes a gaze script maintenance-free: it must finish at
+  // mix 0, so there is never a last slide of the eyes after everything should
+  // have settled.
+  assert.equal(B.noticeLook(0, seconds, true).mix, 0)
+  assert.equal(B.noticeLook(seconds, seconds, true).mix, 0)
+  assert.equal(B.noticeLook(seconds + 5, seconds, true).mix, 0)
+
+  let peak = 0
+  for (let t = 0; t <= seconds; t += 0.02) {
+    const look = B.noticeLook(t, seconds, true)
+    peak = Math.max(peak, look.mix)
+    assert.ok(look.mix >= 0 && look.mix <= 1, `mix ${look.mix} at ${t}`)
+    // the automatic drift comes back exactly as the look lets go
+    assert.ok(Math.abs(look.wander - (1 - look.mix)) < 1e-9)
+    assert.ok(isFinite(look.yaw + look.pitch + look.spin))
+  }
+  assert.ok(peak > 0.99, `only reached ${peak}`)
+
+  // A whole turn is the same angle as none, so it lands where it aims however
+  // far round it went; it is spent by the time the look is holding.
+  assert.equal(B.noticeLook(0, seconds, true).spin, 360)
+  assert.equal(B.noticeLook(1.2, seconds, true).spin, 0)
+  // On a shape that is not a circle the eyes are re-seated to the outline, so
+  // travelling round it makes them hop along the profile. There they slide.
+  for (let t = 0; t <= seconds; t += 0.1) {
+    assert.equal(B.noticeLook(t, seconds, false).spin, 0)
+  }
+})
+
+test("looking up actually moves the eyes, and gives them back", () => {
+  const seconds = B.performanceSeconds("notice")
+  const engine = B.createEngine(R, "idle", "cercle", "neutre")
+
+  // Driven every frame, the way the renderer drives it. Setting the target
+  // once and sampling at that same instant proves nothing: the engine's
+  // catch-up starts from where the gaze already was, so it would still be
+  // there — which is exactly the inertia that makes the tracking read as
+  // looking rather than as snapping.
+  const play = (until) => {
+    let frame = null
+    for (let t = 0; t <= until + 1e-9; t += 1 / 30) {
+      engine.setLook(B.noticeLook(t, seconds, true), t, 0.05)
+      frame = engine.sample(t)
+    }
+    return frame
+  }
+
+  const restingAt = (t) => B.createEngine(R, "idle", "cercle", "neutre").sample(t)
+  const held = play(1.7)
+  const resting = restingAt(1.7)
+  const moved = Math.hypot(held.eyes[0].m[4] - resting.eyes[0].m[4],
+                           held.eyes[0].m[5] - resting.eyes[0].m[5])
+  assert.ok(moved > 20, `eyes only moved ${moved.toFixed(1)}`)
+
+  // and by the end they are back where the pose alone would have put them
+  const after = play(seconds + 1)
+  const back = restingAt(seconds + 1)
+  const gap = Math.hypot(after.eyes[0].m[4] - back.eyes[0].m[4],
+                         after.eyes[0].m[5] - back.eyes[0].m[5])
+  assert.ok(gap < 1, `eyes ended ${gap.toFixed(2)} away from resting`)
+})
+
 /* ----------------------------------------------------------------- engine */
 
 const sig = (frame) => JSON.stringify([

@@ -64,8 +64,9 @@ none of its state.
   settings. Middle-click asks from that bar's monitor;
   right-click opens the console there.
 - Start a new conversation whenever context should not carry forward.
-- The drawn companion watches your pointer while it is over it, and looks up
-  wearing another expression now and then while nothing is happening.
+- The drawn companion watches your pointer while it is over it, and finds
+  things to do with itself while nothing is happening — including looking up
+  at you.
 
 The creature follows the desktop rather than drawing a second UI language.
 Its controls use Omarchy's colors, typography, spacing, panels, focus states,
@@ -165,6 +166,42 @@ omarchy-shell grokchief expression curieux
 Each lists what it accepts when given something it does not know. A value is
 required: Omarchy's IPC has no way to call one of these with nothing, the same
 as `pet`.
+
+## While nothing is happening
+
+Left alone, the drawn companion performs. Every so often — rarely enough that
+catching it feels like catching something — it does one of these:
+
+| | |
+|---|---|
+| `notice` | looks up at whoever is at the desk, holds your eye, then goes back to what it was doing |
+| `doze` | falls asleep for a while |
+| `wink` | winks |
+| `stretch` | opens its eyes wide |
+| `egg`, `hexagon`, `tumble` | morphs into another shape and back |
+| `orbit`, `comet` | rings and ribbons go round it |
+
+`notice` is the one worth watching for. The eyes do not slide across the face
+to reach you; they travel round the sphere they live on, passing behind the
+body and coming back the other side, and land facing you. A whole turn is the
+same angle as none, so it arrives exactly where it aimed however far round it
+went. On a shape that is not a circle they slide instead — the eyes are
+re-seated to the real outline, so turning them round a triangle makes them hop
+along its profile.
+
+None of these is `working`, `waiting`, `error` or `success`. Those four states
+are how the plugin tells you something has happened, and a creature that
+performed them for its own amusement would be crying wolf.
+
+How often, and how long it rests afterwards, are the existing **activity**
+settings — they were built for the spritesheet companions and apply here
+unchanged. Anything with news to deliver cuts a performance short, and so does
+your hand. To ask for one:
+
+```bash
+omarchy-shell grokchief play notice
+omarchy-shell grokchief play          # whatever it feels like
+```
 
 ## Bring your own companion
 

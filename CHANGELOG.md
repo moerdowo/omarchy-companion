@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.0 — 2026-09-01
+
+- Gave the drawn companion something to do while nothing is happening. Left
+  alone it now performs: `notice` looks up at whoever is at the desk, `doze`
+  falls asleep for a while, and `wink`, `stretch`, `egg`, `hexagon`, `tumble`,
+  `orbit` and `comet` are the rest of the repertoire.
+- Made `notice` a gaze rather than a pose. The eyes travel round the sphere
+  they live on — behind the body and back the other side — and land facing
+  you, because a whole turn is the same angle as none and so arrives exactly
+  where it aimed. On a shape that is not a circle they slide instead: the eyes
+  are re-seated to the real outline, so turning them round a triangle would
+  make them hop along its profile. A real pointer outranks the script, since
+  the creature should look at the person rather than through them.
+- Kept the performances neutral, which is a rule and not a preference. The
+  state catalogue also holds `thinking`, `notify`, `alert` and `burst`, and
+  those four are how the plugin says something has happened; a creature that
+  played one for its own amusement would be crying wolf. A test enforces it.
+- Reused the existing activity machinery rather than building a second one, so
+  the *how often* and *how long it rests* settings, the Play button and
+  `play <name>` all work on the drawn companion exactly as they do on a
+  spritesheet one.
+- Separated walking from performing. They were one flag, and bundling them had
+  quietly cost the drawn companion every idle performance it has: it is still,
+  because it has no legs, and *still* was also being read as *has nothing to
+  do with itself*.
+
 ## 1.1.1 — 2026-09-01
 
 - Fixed idle expressions never happening. `idleExpression` used its random

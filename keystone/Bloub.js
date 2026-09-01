@@ -1863,6 +1863,105 @@ function idleExpression(rand, current) {
   return pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))]
 }
 
+/* --------------------------------------------------- standby performances */
+
+// What the creature does with itself while nothing is happening.
+//
+// Grok Chief already calls these activities and owns the machinery for them:
+// how often one is offered, how long it rests afterwards, the Play button, and
+// `play <name>`. A spritesheet pet's activity is a row of its atlas; a drawn
+// one has no atlas, so a performance here is the same three things minus the
+// sheet — a name, a state, and how long to hold it.
+//
+// Every one of them is NEUTRAL, and that is the selection rule rather than a
+// matter of taste. The catalogue also holds `thinking`, `notify`, `alert` and
+// `burst`, and those four are how the plugin says something is happening. A
+// creature that performed them for its own amusement would be crying wolf, and
+// the next real one would not be believed.
+//
+// `notice` is the one that is not just a state: it looks up at whoever is at
+// the desk, which is a gaze rather than a pose. See `noticeLook`.
+var PERFORMANCES = [
+  { name: "notice", state: "idle", seconds: 3.4 },
+  { name: "wink", state: "wink", seconds: 1.6 },
+  { name: "stretch", state: "wide", seconds: 1.8 },
+  { name: "egg", state: "egg", seconds: 1.8 },
+  { name: "hexagon", state: "hexagon", seconds: 1.6 },
+  { name: "tumble", state: "play", seconds: 2.4 },
+  { name: "orbit", state: "orbit", seconds: 3.6 },
+  { name: "comet", state: "comet", seconds: 2.6 },
+  // Long enough to read as asleep rather than as a blink. It is the one
+  // performance whose whole point is that nothing happens for a while.
+  { name: "doze", state: "sleep", seconds: 9 }
+]
+
+var PERFORMANCE_BY_NAME = {}
+for (var _p = 0; _p < PERFORMANCES.length; _p++) {
+  PERFORMANCE_BY_NAME[PERFORMANCES[_p].name] = PERFORMANCES[_p]
+}
+
+/**
+ * The performances as activity tracks, which is what the rest of the plugin
+ * already knows how to schedule.
+ *
+ * One frame held for the whole performance: `Model.activityDuration` multiplies
+ * frames by holds, so a single hold of the full length is the honest way to say
+ * "this lasts nine seconds" to code that was written for spritesheets. No `row`
+ * is declared, because there is no sheet to have a row in.
+ */
+function performanceTracks() {
+  var out = []
+  for (var i = 0; i < PERFORMANCES.length; i++) {
+    out.push({
+      name: PERFORMANCES[i].name,
+      frames: 1,
+      holds: [Math.round(PERFORMANCES[i].seconds * 1000)]
+    })
+  }
+  return out
+}
+
+function performanceState(name) {
+  var p = lookup(PERFORMANCE_BY_NAME, name)
+  return p && lookup(STATE_BY_ID, p.state) ? p.state : "idle"
+}
+
+function performanceSeconds(name) {
+  var p = lookup(PERFORMANCE_BY_NAME, name)
+  return p ? p.seconds : 0
+}
+
+/**
+ * Looking up at whoever is at the desk.
+ *
+ * A gaze script: a pure function of the time since the performance began, in
+ * seconds, evaluated every frame. The rule that keeps such a script free of
+ * maintenance is that it must END at `mix: 0`, handing the eyes back to the
+ * pose with nothing left to release — otherwise there is one last slide just as
+ * everything should have settled.
+ *
+ * `mayTurn` is not a style choice. The eyes travel round the sphere rather than
+ * sliding across the face, and because -360 degrees is the same angle as 0 the
+ * turn lands exactly where the look asks, by construction. But the eyes are
+ * re-seated to the real outline, so on a shape that is not a circle they follow
+ * the profile while they travel and hop along it. On those the gaze slides
+ * instead, which is the same intent and the only thing that reads.
+ */
+function noticeLook(t, seconds, mayTurn) {
+  var release = 0.6
+  var arrive = easings.easeOutQuint(clamp(t / 0.4))
+  var leave = easings.easeOutQuint(clamp((t - (seconds - release)) / release))
+  var mix = arrive * (1 - leave)
+  return {
+    yaw: 0,
+    pitch: LOOK_PITCH,
+    mix: mix,
+    spin: mayTurn ? 360 * (1 - easings.easeInOutCubic(clamp(t / 1.1))) : 0,
+    // The automatic drift comes back as the look lets go, not after it.
+    wander: 1 - mix
+  }
+}
+
 /* ------------------------------------------------------------- validation */
 
 // Every one of these reads a value that came from shell.json or a command line,

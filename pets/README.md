@@ -12,7 +12,10 @@ they are already here.
 | `gritty-front` | Gritty facing you, with one uncompromising expression. | 150 px |
 
 All four sit where you put them: none has a walk cycle, so *Follow my focus*
-has nothing to offer them and the menu leaves it out.
+has nothing to offer them and the menu leaves it out. `bloub` is the only one
+with idle performances — the others declare no activity rows — so the *how
+often* and *how long it rests* settings only have something to schedule while
+it is worn.
 
 `bloub` has no artwork in its folder at all — see
 [../docs/pets.md](../docs/pets.md) for what a pet with a `render` field is,

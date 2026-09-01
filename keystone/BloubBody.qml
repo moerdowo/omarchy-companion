@@ -40,6 +40,13 @@ Canvas {
   /** Window visible and creature on stage; gates the clock. */
   property bool active: true
   property bool dragging: false
+  /**
+   * The standby performance being played, or null: an activity track from the
+   * same machinery the spritesheet pets use. The renderer owns when it ENDS,
+   * because a drawn performance has no last frame to run out of.
+   */
+  property var activity: null
+  signal performanceFinished()
   /** Pointer offset from the centre, each -1 to 1, or tracking off. */
   property bool pointer: false
   property real pointerX: 0
@@ -64,7 +71,20 @@ Canvas {
    * creature ignoring them.
    */
   readonly property string shownMood: dragging ? "dragged" : mood
-  readonly property string shownState: Bloub.stateForMood(shownMood)
+  readonly property string activityName: activity ? String(activity.name || "") : ""
+
+  /**
+   * Being carried outranks a performance, which outranks the mood.
+   *
+   * A performance is only ever offered while the mood is calm, and anything
+   * with news to deliver cancels one — so by the time these can disagree, the
+   * only thing above a performance is a hand.
+   */
+  readonly property string shownState: {
+    if (dragging) return Bloub.stateForMood("dragged")
+    if (activityName !== "") return Bloub.performanceState(activityName)
+    return Bloub.stateForMood(mood)
+  }
 
   /**
    * The expression on the resting face: what a mood imposes, else the glance it
@@ -112,6 +132,7 @@ Canvas {
     running: canvas.animating && canvas.engine !== null
     onTriggered: {
       canvas.now = Date.now() / 1000 - canvas.epoch
+      canvas.driveLook()
       canvas.requestPaint()
     }
   }
@@ -195,9 +216,46 @@ Canvas {
 
   function aim() {
     if (!engine || reduceMotion) return
-    engine.setLook(pointer ? Bloub.lookAt(pointerX, pointerY, 1) : null, now)
+    if (pointer) engine.setLook(Bloub.lookAt(pointerX, pointerY, 1), now)
+    // A pointer leaving does not hand the gaze back to the pose if a script is
+    // holding it; `driveLook` owns it until the performance releases it.
+    else if (activityName !== "notice") engine.setLook(null, now)
     requestPaint()
   }
+
+  /**
+   * The scripted part of a performance, evaluated each frame.
+   *
+   * A real pointer outranks it: the creature should look at the person rather
+   * than through them at where the script says.
+   */
+  function driveLook() {
+    if (!engine || reduceMotion || pointer) return
+    if (activityName !== "notice") return
+    engine.setLook(Bloub.noticeLook(now - activityAt,
+                                    Bloub.performanceSeconds(activityName),
+                                    Bloub.shapeId(shapeId) === "cercle"), now, 0.05)
+  }
+
+  // ---------------------------------------------------------- performances
+  //
+  // A spritesheet performance ends when its row runs out of frames. A drawn one
+  // has no frames, so its length is declared and this is what enforces it; the
+  // service is told the same way the sprite viewport tells it.
+  property real activityAt: 0
+
+  onActivityNameChanged: {
+    activityAt = now
+    performanceEnd.stop()
+    if (activityName !== "") {
+      performanceEnd.interval = Math.max(400,
+        Math.round(Bloub.performanceSeconds(activityName) * 1000))
+      performanceEnd.restart()
+    } else if (engine && !reduceMotion) engine.setLook(null, now)
+    requestPaint()
+  }
+
+  Timer { id: performanceEnd; onTriggered: canvas.performanceFinished() }
 
   // --------------------------------------------------------------- glances
   //

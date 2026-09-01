@@ -40,6 +40,12 @@ Item {
   property string bloubColor: ""
   property string bloubExpression: ""
   readonly property bool still: faces !== null || bloub
+  // Walking and performing are separate abilities, and bundling them cost the
+  // drawn companion every idle performance it has. A creature with no legs
+  // still has things to do with itself; what it cannot do is cross the room.
+  // A still SPRITE pet genuinely has neither — its performances are atlas rows
+  // it does not own — so this stays false for those.
+  readonly property bool performs: bloub
   // Whether a resting creature is allowed to change its expression on its
   // own, and how readily. Nothing moves either way — it is the difference
   // between a face and a photograph of one.
@@ -453,7 +459,7 @@ Item {
   // where it stands. Never twice the same thing, never while it is busy,
   // and never so often that it stops being a small surprise.
   function activityAllowed(rested) {
-    if (still || reduceMotion || activity !== null
+    if ((still && !performs) || reduceMotion || activity !== null
         || !Array.isArray(activities) || activities.length === 0)
       return false
     return Model.mayPlayActivity({ onStage: onStage, promptOpen: promptOpen, walking: walking,
@@ -471,7 +477,11 @@ Item {
     // An explicit request skips the rest, but never the interruptions.
     if (!canPlayActivity || !track) return false
     activity = track
-    activityPasses = Model.activityRepeats(activityTargetMs, Model.activityDuration(track, frameIntervalMs * 4))
+    // A short atlas row is played several times so the performance lasts long
+    // enough to be noticed. A drawn performance declares its own full length,
+    // so repeating it would just be doing it twice.
+    activityPasses = performs ? 1
+      : Model.activityRepeats(activityTargetMs, Model.activityDuration(track, frameIntervalMs * 4))
     // Start the count at the beginning, or every performance after the
     // first inherits the last one's finished count and ends after one pass.
     activityPass = 0
@@ -544,11 +554,14 @@ Item {
     id: brain
     interval: 2500
     repeat: true
-    running: pet.motionEnabled && pet.onStage && !pet.still
+    running: pet.motionEnabled && pet.onStage && (!pet.still || pet.performs)
              && pet.mood !== "sleeping" && !pet.promptOpen && pet.activity === null
     onTriggered: {
       var a = Model.decideAction(Math.random, pet.mood, pet.activityRate)
       brain.interval = a.nextMs
+      // Wandering and hopping are things a body with legs does. For one
+      // without, every kind of moment collapses onto the one it can use.
+      if (pet.still) { pet.idleMoment(); return }
       if (a.type === "wander" && pet.roam)
         pet.wanderTo(pet.px + (Math.random() - 0.5) * 2 * pet.petSize * 6)
       else if (a.type === "hop" && !pet.walking) soloHop.restart()
@@ -705,6 +718,8 @@ Item {
       glanceChance: pet.glanceChance
       active: pet.active && pet.onStage
       dragging: hit.holding
+      activity: pet.activity
+      onPerformanceFinished: pet.activityFinished()
       // It watches the pointer while the pointer is on it. Tucked away there
       // is nothing to look up at, and mid-drag the head should stay put.
       pointer: hit.containsMouse && !hit.holding && !pet.tucked

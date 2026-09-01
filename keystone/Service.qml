@@ -1294,6 +1294,10 @@ Item {
           root.spriteContent = pet.content && typeof pet.content === "object" ? pet.content : null
           root.spritePreferredSize = isFinite(Number(pet.size)) && Number(pet.size) >= 32
             && Number(pet.size) <= 240 ? Math.round(Number(pet.size)) : 0
+          // Its performances are code, not rows, so they come from the
+          // renderer rather than from the manifest — but they are the same
+          // tracks, so everything that schedules an activity keeps working.
+          root.spriteActivities = Bloub.performanceTracks()
           root.bloubPet = true
           root.petResolved = true
           return
