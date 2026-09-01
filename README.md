@@ -162,8 +162,9 @@ omarchy-shell grokchief color theme
 omarchy-shell grokchief expression curieux
 ```
 
-Each answers with what is worn when given no value, and lists what it accepts
-when given something it does not know.
+Each lists what it accepts when given something it does not know. A value is
+required: Omarchy's IPC has no way to call one of these with nothing, the same
+as `pet`.
 
 ## Bring your own companion
 

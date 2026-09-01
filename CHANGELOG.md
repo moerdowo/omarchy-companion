@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.1 — 2026-09-01
+
+- Fixed idle expressions never happening. `idleExpression` used its random
+  source as a number where it is a function, so the index was `NaN` and the
+  expression `undefined`, which QML refused to assign — costing the whole
+  feature while failing nowhere near the mistake. Its test asserted only that
+  the result was not the expression already worn, which `undefined` satisfies;
+  it now asserts what was returned is a real expression and that every one in
+  the pool is reachable.
+- Reported a drawn companion as a body in `status`. The one-line status and
+  the JSON snapshot both read "has a spritesheet" as "has a body", so a
+  perfectly healthy drawn creature described itself as the fallback. The
+  snapshot also refreshes when the drawn pet resolves, which it previously did
+  not, leaving the file stale until something unrelated happened to change.
+
 ## 1.1.0 — 2026-09-01
 
 - Brought the whole size scale down: S/M/L/XL are now 48, 64, 88 and 120

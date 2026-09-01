@@ -1102,6 +1102,7 @@ Item {
   })
   onMoodChanged: statusWrite.restart()
   onEnergyChanged: statusWrite.restart()
+  onBloubPetChanged: statusWrite.restart()
   onConsoleOpenChanged: {
     if (consoleOpen && activeChief) activeChief.cheer()
     statusWrite.restart()
@@ -2781,7 +2782,7 @@ Item {
       return root.mood
         + " energy=" + Math.round(root.energy * 100) + "%"
         + " agent=" + (root.agentId === "" ? "none" : root.agentId)
-        + " body=" + (root.spriteOk ? root.spritePetId : "fallback")
+        + " body=" + (root.spriteOk || root.bloubPet ? root.spritePetId : "fallback")
         + " monitor=" + root.worldMonitor
         + " console=" + (root.consoleLaunchPending ? "opening"
           : root.consoleOpen ? "open" : "closed")

@@ -1845,14 +1845,22 @@ function expressionForMood(mood, chosen) {
  */
 var IDLE_EXPRESSIONS = ["heureux", "curieux", "fier", "attentif", "blase", "timide"]
 
-/** One of the idle expressions, never the one already worn. */
+/**
+ * One of the idle expressions, never the one already worn.
+ *
+ * `rand` is a FUNCTION returning 0..1, the same contract as Model.idleGlance,
+ * so a caller passes `Math.random` rather than calling it. Using the argument
+ * as though it were the number gives `NaN` for the index and `undefined` for
+ * the expression, which QML then refuses to assign — silently costing every
+ * idle glance rather than failing anywhere near the mistake.
+ */
 function idleExpression(rand, current) {
   var pool = []
   for (var i = 0; i < IDLE_EXPRESSIONS.length; i++) {
     if (IDLE_EXPRESSIONS[i] !== current) pool.push(IDLE_EXPRESSIONS[i])
   }
   if (pool.length === 0) return current
-  return pool[Math.min(pool.length - 1, Math.floor(rand * pool.length))]
+  return pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))]
 }
 
 /* ------------------------------------------------------------- validation */

@@ -138,11 +138,21 @@ test("an idle glance never carries news, and never repeats what is worn", () => 
     assert.ok(B.EXPRESSION_BY_ID[id], id)
     assert.ok(!alarming.includes(id), `${id} has news in it`)
   }
+  // Assert what it IS, not only what it is not. Checking `notEqual(worn)` alone
+  // passed while the function was returning `undefined` for every call, because
+  // undefined is indeed not the expression being worn.
+  const known = new Set(B.EXPRESSIONS.map((e) => e.id))
   for (const worn of B.IDLE_EXPRESSIONS) {
-    for (const roll of [0, 0.25, 0.5, 0.99]) {
-      assert.notEqual(B.idleExpression(() => roll, worn), worn)
+    for (const roll of [0, 0.25, 0.5, 0.99, 1]) {
+      const picked = B.idleExpression(() => roll, worn)
+      assert.ok(known.has(picked), `picked ${picked} for roll ${roll}`)
+      assert.notEqual(picked, worn)
     }
   }
+  // Every idle expression must be reachable, or the pool is smaller than it looks.
+  const seen = new Set()
+  for (let i = 0; i < 200; i++) seen.add(B.idleExpression(Math.random, ""))
+  assert.equal(seen.size, B.IDLE_EXPRESSIONS.length)
 })
 
 /* ----------------------------------------------------------------- engine */
