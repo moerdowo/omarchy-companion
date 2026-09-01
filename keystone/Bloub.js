@@ -1802,7 +1802,13 @@ var MOOD_STATE = {
   parked: "idle",
   tired: "idle",
   love: "idle",
-  working: "thinking",
+  // NOT the catalogue's `thinking`. That state is faithful — one of the
+  // fourteen measured off the video — but it dissolves the body into three
+  // pulsing dots, and on a desktop three pulsing dots are a progress bar. A
+  // companion that vanishes into a loading indicator the moment you ask it
+  // something is the opposite of the point, so a turn keeps the body and the
+  // face and puts the thought in the eyes. See MOOD_EXPRESSION and ponderLook.
+  working: "idle",
   waiting: "notify",
   success: "burst",
   error: "alert",
@@ -1813,7 +1819,11 @@ var MOOD_STATE = {
 /** Moods that speak through the face instead of through the animation. */
 var MOOD_EXPRESSION = {
   tired: "somnolent",
-  love: "heureux"
+  love: "heureux",
+  // A head tilted, eyes of unequal size looking off to one side: working
+  // something out. It is what tells a turn apart from resting, together with
+  // the slow sweep of `ponderLook`, since the two share a body.
+  working: "curieux"
 }
 
 /**
@@ -1867,7 +1877,7 @@ function idleExpression(rand, current) {
 
 // What the creature does with itself while nothing is happening.
 //
-// Grok Chief already calls these activities and owns the machinery for them:
+// Omarchy Companion already calls these activities and owns the machinery for them:
 // how often one is offered, how long it rests afterwards, the Play button, and
 // `play <name>`. A spritesheet pet's activity is a row of its atlas; a drawn
 // one has no atlas, so a performance here is the same three things minus the
@@ -1959,6 +1969,29 @@ function noticeLook(t, seconds, mayTurn) {
     spin: mayTurn ? 360 * (1 - easings.easeInOutCubic(clamp(t / 1.1))) : 0,
     // The automatic drift comes back as the look lets go, not after it.
     wander: 1 - mix
+  }
+}
+
+/**
+ * Thinking, as the character rather than as a spinner.
+ *
+ * A gaze script like `noticeLook`, but with no end: it runs for as long as the
+ * turn does, and the caller stops asking when the work finishes.
+ *
+ * `mix` is a flat 1 and `wander` a flat 0, so this REPLACES the resting drift
+ * rather than adding to it — cumulative, the eyes would wander about a moving
+ * target and read as agitated instead of thoughtful. The two periods do not
+ * divide into one another, so the sweep never settles into a visible loop; the
+ * same trick the resting drift uses, just wider and slower so that a turn does
+ * not look like standing still.
+ */
+function ponderLook(t) {
+  return {
+    yaw: Math.sin(t * 0.55) * 12 + Math.sin(t * 0.23 + 1.7) * 3,
+    pitch: LOOK_PITCH + 2 + Math.sin(t * 0.41 + 0.9) * 6,
+    mix: 1,
+    spin: 0,
+    wander: 0
   }
 }
 

@@ -329,7 +329,7 @@ test("activities are read defensively and picked at odds", () => {
 test("home defaults to the bottom-right and aligns visible artwork", () => {
   // An ordinary atlas cell uses the ecosystem's fallback aspect.
   assert.equal(M.defaultHomeX(1440, 150, 10), 1361)
-  // Quattro is wide: its actual cell and content bounds keep the whole car
+  // A wide pet: its actual cell and content bounds keep the whole body
   // inside the same right-hand gap after it turns to face inward.
   assert.equal(M.defaultHomeX(2560, 130, 10, 333 / 208,
     { left: 0.021, right: 0.979 }, true), 2450)
@@ -481,12 +481,12 @@ test("an order cannot break out of the shell it is quoted into", () => {
   // one — a single argument to bash -lc, with no second quoting layer —
   // and must come back out as the literal text that went in.
   const attacks = [
-    "; rm -rf /tmp/grokchief-escape",
-    "$(touch /tmp/grokchief-escape)",
-    "`touch /tmp/grokchief-escape`",
-    "'; touch /tmp/grokchief-escape; '",
-    "&& touch /tmp/grokchief-escape",
-    "| touch /tmp/grokchief-escape",
+    "; rm -rf /tmp/companion-escape",
+    "$(touch /tmp/companion-escape)",
+    "`touch /tmp/companion-escape`",
+    "'; touch /tmp/companion-escape; '",
+    "&& touch /tmp/companion-escape",
+    "| touch /tmp/companion-escape",
     "a'b",
     "$HOME && echo x",
     "line one\nline two",
@@ -496,7 +496,7 @@ test("an order cannot break out of the shell it is quoted into", () => {
     const out = execFileSync("bash", ["-lc", "printf %s " + M.shellQuote(attack)], { encoding: "utf8" })
     assert.equal(out, attack, `escaped: ${JSON.stringify(attack)}`)
   }
-  assert.equal(existsSync("/tmp/grokchief-escape"), false, "nothing was executed")
+  assert.equal(existsSync("/tmp/companion-escape"), false, "nothing was executed")
   assert.equal(M.shellQuote(undefined), "''")
 })
 
@@ -794,7 +794,7 @@ test("the bubble says what the agent is doing, in its words where it has them", 
   assert.deepEqual(M.parseTalkLine("claude", claudeTool), { kind: "doing", text: "Read notes.txt" })
   // Without a description of its own, one is built from what matters.
   const claudeRead = JSON.stringify({ type: "assistant", message: { content: [
-    { type: "tool_use", name: "Read", input: { file_path: "/home/x/projects/grokchief/keystone/Service.qml" } }] } })
+    { type: "tool_use", name: "Read", input: { file_path: "/home/x/projects/companion/keystone/Service.qml" } }] } })
   assert.deepEqual(M.parseTalkLine("claude", claudeRead), { kind: "doing", text: "Reading Service.qml" })
   // Words beat tools: a message that says something is text, not doing.
   const claudeBoth = JSON.stringify({ type: "assistant", message: { content: [
@@ -810,7 +810,7 @@ test("the bubble says what the agent is doing, in its words where it has them", 
   // top-level tool_use records, not the older top-level `tool` spelling.
   const opencodeRead = JSON.stringify({ type: "tool_use", sessionID: "ses_1", part: {
     type: "tool", tool: "read", state: { status: "completed",
-      input: { file_path: "/home/x/projects/grokchief/keystone/Service.qml" } } } })
+      input: { file_path: "/home/x/projects/companion/keystone/Service.qml" } } } })
   assert.deepEqual(M.parseTalkLine("opencode", opencodeRead),
     { kind: "doing", text: "Reading Service.qml" })
 
@@ -870,14 +870,20 @@ test("the state directory spelling stays stable", () => {
                  "tools/perform-check", "tools/coldstart-check"]
   // Two families of name appear in this repository and both get mistyped the
   // same way. `omarchy` is the desktop and `omarchief` the project this was
-  // forked from, which the documentation cites by name; `grokchief` is ours.
+  // forked from, which the documentation cites by name; `companion` is ours.
   // Anything else beginning either way is a typo, and one that reads as
   // correct until a path built from it silently misses.
-  const known = new Set(["omarchy", "omarchief", "grokchief"])
+  // Three families of name live in this repository and all three get mistyped
+  // the same way. `omarchy` is the desktop; `omarchief` is the project this was
+  // forked from, which the documentation cites by name; `companion` and the
+  // reverse-DNS `omarchycompanion` are ours. Anything else beginning any of
+  // those ways is a typo — and one that reads as correct right up until a path
+  // built from it silently misses.
+  const known = new Set(["omarchy", "omarchief", "omarchycompanion", "companion", "companions"])
   for (const name of files) {
     let text
     try { text = readFileSync(root + name, "utf8") } catch { continue }
-    const stray = [...new Set(text.match(/omar[a-z]+|grok[a-z]+/g) || [])]
+    const stray = [...new Set(text.match(/omar[a-z]+|companion[a-z]*/g) || [])]
       .filter(w => !known.has(w))
     assert.deepEqual(stray, [], name + " has a mangled name: " + stray)
   }
@@ -885,7 +891,7 @@ test("the state directory spelling stays stable", () => {
   assert.match(performance, /XDG_STATE_HOME/,
     "perform-check must honor the configured state home")
   assert.match(performance,
-    /os\.path\.join\(state_home,\s*"omarchy",\s*"grokchief",\s*"status\.json"\)/,
+    /os\.path\.join\(state_home,\s*"omarchy",\s*"companion",\s*"status\.json"\)/,
     "perform-check must read the real status file")
 })
 
@@ -919,7 +925,7 @@ async function closeOf(child, timeoutMs = 6000) {
 }
 
 test("stopping an agent turn reaps even TERM-resistant descendants", async () => {
-  const work = mkdtempSync(join(tmpdir(), "grokchief-runner-"))
+  const work = mkdtempSync(join(tmpdir(), "companion-runner-"))
   const pidPath = join(work, "agent.pid")
   let childPid = 0
   let runner
@@ -950,7 +956,7 @@ test("stopping an agent turn reaps even TERM-resistant descendants", async () =>
 })
 
 test("plugin destruction reaps a turn after its direct wrapper is SIGKILLed", async () => {
-  const work = mkdtempSync(join(tmpdir(), "grokchief-destructor-"))
+  const work = mkdtempSync(join(tmpdir(), "companion-destructor-"))
   const pidPath = join(work, "agent.pid")
   let childPid = 0
   let runner
@@ -1006,7 +1012,7 @@ test("ids and pet paths stay inside their declared boundary", () => {
   assert.equal(M.safeId("with space"), false)
   for (const reserved of ["__proto__", "prototype", "constructor"])
     assert.equal(M.safeId(reserved), false, `${reserved} must not become an object-map key`)
-  assert.equal(M.safeRelativePath("sprites/gritty.webp"), true)
+  assert.equal(M.safeRelativePath("sprites/creature.webp"), true)
   assert.equal(M.safeRelativePath("../secret.webp"), false)
   assert.equal(M.safeRelativePath("/tmp/secret.webp"), false)
   assert.equal(M.safeRelativePath("a\\b.webp"), false)
@@ -1055,7 +1061,7 @@ test("what is left showing is drawing, not the margin around it", () => {
   assert.equal(M.peekHeight(150), 22, "the default still shows a recognisable face")
   assert.equal(M.peekHeight(56), 15, "small pets keep a usable handle")
   assert.equal(M.peekHeight(0), 15)
-  // gritty's resting picture stops well short of its cell on the right, so
+  // a resting picture may stop well short of its cell on the right, so
   // the shift is measured to the drawing's own edge
   const bw = 188, right = 0.8495, left = 0.0534, W = 2560, peek = 28
   const bodyX = 63 - bw / 2

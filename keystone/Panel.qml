@@ -6,12 +6,12 @@ import qs.Ui
 import "Model.js" as Model
 import "Bloub.js" as Bloub
 
-// A monitor-local control surface over the single Grok Chief service.
+// A monitor-local control surface over the single Omarchy Companion service.
 // The panel never shells out and never mirrors state through a file: every
 // label and action talks to the same object that owns the desktop creature.
 Panel {
   id: root
-  moduleName: "io.github.moerdowo.grokchief"
+  moduleName: "io.github.moerdowo.omarchycompanion"
   manageIpc: false
 
   property var anchorItem: null
@@ -125,7 +125,7 @@ Panel {
       var id = entry && typeof entry === "object" ? String(entry.id || "") : String(entry || "")
       // Following Omarchy's default remains future-proof because its own
       // launcher owns that command. An explicit override is only offered when
-      // Grok Chief can actually build the corresponding console command.
+      // Omarchy Companion can actually build the corresponding console command.
       if (id !== "" && Model.canOpenConsole(id)) {
         if (id === configuredAgent) foundConfigured = true
         out.push({
@@ -249,7 +249,7 @@ Panel {
   }
 
   function contextTitle() {
-    if (!ready) return "Starting Grok Chief"
+    if (!ready) return "Starting Omarchy Companion"
     if (!hasAgent) return "Choose an agent to take orders"
     if (mood === "error") return "The agent could not finish"
     if (service.agentSilent === true) return "Still working"
@@ -666,7 +666,7 @@ Panel {
             PanelHero {
               id: overviewHero
               width: parent.width
-              title: "Grok Chief"
+              title: "Omarchy Companion"
               meta: root.heroMeta()
               detail: root.ready ? root.energyPercent + "%" : ""
               foreground: root.foreground
@@ -858,7 +858,7 @@ Panel {
             PanelHero {
               id: settingsHero
               width: parent.width
-              title: "Grok Chief"
+              title: "Omarchy Companion"
               meta: "Settings · changes apply immediately"
               detail: root.monitorName
               foreground: root.foreground

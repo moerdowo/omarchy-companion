@@ -1,4 +1,4 @@
-# Grok Chief
+# Omarchy Companion
 
 Your desktop's chief of staff — a small companion that can act on an order,
 carry an agent conversation, and stay one click away in the Omarchy bar.
@@ -11,7 +11,7 @@ cutting, which no sheet of drawings can do.
 
 ![The companion in each of its moods, and the eight shapes it can wear](preview.png)
 
-Grok Chief is a fork of [Omarchief](https://github.com/daventhedude/omarchief)
+Omarchy Companion is a fork of [Omarchief](https://github.com/daventhedude/omarchief)
 with its character replaced. Everything about the desktop — the service, the
 bar widget, the agent turns, the placement — is Omarchief's; what is new is a
 companion that is code rather than artwork. It is built around Omarchy 4's
@@ -23,7 +23,7 @@ monitors you use.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/moerdowo/grok-chief.git --enable
+omarchy plugin add https://github.com/moerdowo/omarchy-companion.git --enable
 ```
 
 That is the entire setup. Review Omarchy's unsandboxed-plugin warning, confirm
@@ -31,22 +31,23 @@ the install, and keep the declared **right** placement or choose another bar
 section. Omarchy then starts the service and adds the one canonical widget
 entry. Do not add a second entry to `shell.json`.
 
-Grok Chief has its own plugin id, so it installs and runs beside Omarchief
+Omarchy Companion has its own plugin id, so it installs and runs beside Omarchief
 rather than replacing it. It reads none of Omarchief's settings and writes
 none of its state.
 
 ## Requirements
 
 - **Runtime:** Omarchy 4, including its Quickshell/Hyprland integration,
-  `bash`, `python3`, `jq`, and the regular `omarchy-*` helpers. Grok Chief installs no
+  `bash`, `python3`, `jq`, and the regular `omarchy-*` helpers. Omarchy Companion installs no
   system package, daemon, hook, or background unit of its own.
 - **Orders:** an agent CLI already discovered and configured by Omarchy. Claude,
   Codex, and OpenCode support bubble conversations; other Omarchy agents open
   in the native console scratchpad. The companion and its non-agent controls remain usable
   when no agent is selected.
 - **Theme repainting:** ImageMagick's `magick`, included by Omarchy. This is
-  for the bundled *spritesheet* companions; the drawn one needs nothing, and
-  wears the theme by picking the `Theme accent` colour.
+  only for a *spritesheet* companion you bring yourself; the bundled one is
+  drawn, needs nothing, and wears the theme by picking the `Theme accent`
+  colour.
 - **Development only:** Node.js 22 for model tests; Qt 6 `qmllint`, `jq`, and a
   running Wayland/Omarchy session for integration checks; Python 3, NumPy, and
   ImageMagick for the artwork builders; `rsvg-convert` to redraw the images in
@@ -90,7 +91,7 @@ supported, and options that do not apply to the selected pet are left out.
 
 ## Agents
 
-Grok Chief discovers the agents Omarchy knows about and follows the desktop
+Omarchy Companion discovers the agents Omarchy knows about and follows the desktop
 default unless you choose another. Claude, Codex, and OpenCode can answer in
 the bubble with session-aware follow-ups. The native console is always the
 escape hatch for a longer or interactive job.
@@ -109,12 +110,12 @@ ordered, but instructions are not a sandbox.
 The console is Omarchy's native scratchpad, including its Quake treatment when
 the installed Omarchy provides it. It makes the work visible, interactive, and
 steerable. It does **not** make the agent sandboxed or promise per-tool
-confirmation. Grok Chief follows Omarchy's launcher when it follows the desktop
+confirmation. Omarchy Companion follows Omarchy's launcher when it follows the desktop
 default; an explicitly selected or resumed agent uses that CLI's compatible
 interactive launch mode. Treat both paths as having the filesystem and network
 reach of the selected CLI.
 
-Grok Chief does not install agent hooks and does not edit another application's
+Omarchy Companion does not install agent hooks and does not edit another application's
 settings. It may passively read an existing OmaPets-compatible status record
 to reflect working, waiting, success, or error on the creature's face. Without
 that record, window and rate-limit state provide the fallback.
@@ -158,9 +159,9 @@ precisely what is being reproduced.
 From a terminal:
 
 ```bash
-omarchy-shell grokchief shape triangle
-omarchy-shell grokchief color theme
-omarchy-shell grokchief expression curieux
+omarchy-shell companion shape triangle
+omarchy-shell companion color theme
+omarchy-shell companion expression curieux
 ```
 
 Each lists what it accepts when given something it does not know. A value is
@@ -199,33 +200,28 @@ unchanged. Anything with news to deliver cuts a performance short, and so does
 your hand. To ask for one:
 
 ```bash
-omarchy-shell grokchief play notice
-omarchy-shell grokchief play          # whatever it feels like
+omarchy-shell companion play notice
+omarchy-shell companion play          # whatever it feels like
 ```
 
 ## Bring your own companion
 
-Four companions are bundled:
-
-- `bloub` — the default, drawn rather than blitted, described above;
-- `gritty` — a weathered little machine cube, with drawn moods, a blink, and
-  idle expressions;
-- `quattro` — the rally car from Omarchy's Tokyo Night wallpaper, adapted as
-  a still, theme-aware companion under Omarchy's MIT licence;
-- `gritty-front` — the same weathered machine facing straight ahead, kept as
-  a deliberately stark still companion.
-
-Drop a folder containing `pet.json` and its spritesheet into:
+One companion is bundled — the drawn one described above — but the
+spritesheet engine this was forked with is all still here, so a pet made for
+the ecosystem works. Drop a folder containing `pet.json` and its spritesheet
+into:
 
 ```text
-~/.config/grokchief/pets/<id>/
+~/.config/omarchy-companion/pets/<id>/
 ```
 
 OmaPets folders under `~/.config/omapets/pets/<id>/` are also discovered.
-User pets take precedence over bundled pets with the same id. Unsafe ids and
-relative paths containing traversal are rejected.
+A user pet takes precedence over a bundled one with the same id. Unsafe ids
+and relative paths containing traversal are rejected. With more than one
+companion installed, a **Companion** picker appears in the settings; with only
+the bundled one there is nothing to choose between, so it does not.
 
-Grok Chief supports Codex/Petdex-style animated atlases and compact expression
+Omarchy Companion supports Codex/Petdex-style animated atlases and compact expression
 grids. A pet can declare a walk cycle, mood cells, blink, idle performances,
 and a themeable hue range. The complete schema is in
 [docs/pets.md](docs/pets.md).
@@ -233,38 +229,38 @@ and a themeable hue range. The complete schema is in
 ## Useful commands
 
 ```bash
-omarchy-shell grokchief ask
-omarchy-shell grokchief order "open my calendar"
-omarchy-shell grokchief stop
-omarchy-shell grokchief summon
-omarchy-shell grokchief fresh
-omarchy-shell grokchief travel DP-2
-omarchy-shell grokchief tuck on
-omarchy-shell grokchief show
-omarchy-shell grokchief hide
-omarchy-shell grokchief status
-omarchy-shell grokchief shape goutte
-omarchy-shell grokchief color bleu
-omarchy-shell grokchief expression heureux
+omarchy-shell companion ask
+omarchy-shell companion order "open my calendar"
+omarchy-shell companion stop
+omarchy-shell companion summon
+omarchy-shell companion fresh
+omarchy-shell companion travel DP-2
+omarchy-shell companion tuck on
+omarchy-shell companion show
+omarchy-shell companion hide
+omarchy-shell companion status
+omarchy-shell companion shape goutte
+omarchy-shell companion color bleu
+omarchy-shell companion expression heureux
 ```
 
 Every mutation validates its value before changing state. The JSON status
 snapshot lives at
-`$XDG_STATE_HOME/omarchy/grokchief/status.json` (normally
-`~/.local/state/omarchy/grokchief/status.json`) for read-only integrations.
+`$XDG_STATE_HOME/omarchy/companion/status.json` (normally
+`~/.local/state/omarchy/companion/status.json`) for read-only integrations.
 It is output, not the control plane; the bar talks to the service directly.
 
 ## Remove
 
 ```bash
-omarchy plugin remove io.github.moerdowo.grokchief
+omarchy plugin remove io.github.moerdowo.omarchycompanion
 ```
 
-Confirm Omarchy's removal prompt. Grok Chief installs no hooks, background unit,
+Confirm Omarchy's removal prompt. Omarchy Companion installs no hooks, background unit,
 or command outside its plugin folder. Its optional local history and
 recolored-sheet cache remain in
-`$XDG_STATE_HOME/omarchy/grokchief/` (normally
-`~/.local/state/omarchy/grokchief/`) so an accidental reinstall does not erase
+`$XDG_STATE_HOME/omarchy/companion/` (normally
+`~/.local/state/omarchy/companion/`) so an accidental reinstall does not erase
 them. They can be removed separately if that history is no longer wanted.
 
 ## Develop and verify
@@ -278,7 +274,9 @@ tools/verify-bloub-port
 
 The cold-start test uses an isolated HOME/XDG environment and a real plugin
 manifest plus shell configuration, so an installed user pet cannot mask a
-missing bundled asset.
+missing bundled asset. Since no spritesheet ships any more, it plants one in
+that isolated environment and loads it — a better test of the path a pet
+actually arrives by than bundled artwork was.
 
 `tools/verify-bloub-port` is the check behind this README's claim that the
 drawn companion's geometry is unaltered from the project it came from. It
@@ -300,14 +298,14 @@ Architecture, visual checks, and the release gate are documented in
 
 ## License
 
-MIT. Grok Chief is a fork of Omarchief, Copyright (c) 2026 Daven Niemann, and
-its bundled Gritty artwork is that project's original work under the same
-terms. The drawn companion is a port of
+MIT. Omarchy Companion is a fork of
+[Omarchief](https://github.com/daventhedude/omarchief), Copyright (c) 2026
+Daven Niemann. The drawn companion is a port of
 [bloub](https://github.com/jeremy-prt/bloub), Copyright (c) 2026 Jérémy
-Perret, also MIT. Quattro retains its upstream notice in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); each pet also carries a
-local NOTICE.
+Perret, also MIT. No third-party artwork ships: the companions that carried
+some were removed, and what they leave behind is recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Grok Chief is independent. It is not endorsed by Omarchy, by the authors of
+Omarchy Companion is independent. It is not endorsed by Omarchy, by the authors of
 the projects it is built from, or by x.ai, whose bot avatar is the shape bloub
 set out to reproduce and the only thing of theirs that appears here.

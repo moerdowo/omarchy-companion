@@ -48,7 +48,7 @@ before(() => {
   assert.match(succeed(magick, "ImageMagick version check"), /^Version: ImageMagick 7\./m)
   succeed(run("python3", ["-c", "import numpy"]), "NumPy import")
 
-  work = mkdtempSync(join(tmpdir(), "grokchief-faces-test-"))
+  work = mkdtempSync(join(tmpdir(), "companion-faces-test-"))
   sourcePath = join(work, "faces.png")
   succeed(run("magick", [
     "-size", "400x220", "xc:none",

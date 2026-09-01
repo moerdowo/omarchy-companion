@@ -114,7 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           for f in README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md \
-                   preview.png docs/expressions.png tools/source/NOTICE; do
+                   preview.png docs/expressions.png; do
             [[ -s $f ]] || { echo "missing or empty: $f" >&2; exit 1; }
           done
           version=$(jq -r .version manifest.json)
@@ -123,14 +123,14 @@ jobs:
             || { echo "CHANGELOG.md has no dated entry for $version" >&2; exit 1; }
           ! grep -Eiq "^## ${version_pattern} — unreleased$" CHANGELOG.md \
             || { echo "CHANGELOG.md still marks $version unreleased" >&2; exit 1; }
-          grep -Fqx 'omarchy plugin add https://github.com/moerdowo/grok-chief.git --enable' README.md
-          grep -Fqx 'omarchy plugin remove io.github.moerdowo.grokchief' README.md
+          grep -Fqx 'omarchy plugin add https://github.com/moerdowo/omarchy-companion.git --enable' README.md
+          grep -Fqx 'omarchy plugin remove io.github.moerdowo.omarchycompanion' README.md
           ! grep -Eq 'omarchy plugin (add|remove).*--yes' README.md \
             || { echo "README.md bypasses Omarchy's install/remove confirmation" >&2; exit 1; }
       - name: release payload is clean
         run: |
           set -euo pipefail
-          bad=$(git ls-files | grep -E '(^|/)(__pycache__/|.*\.py[co]$|tools/grokchief-hooks?$|tools/source/.*\.png$|grokchief-artwork-sources\.tar\.gz$)' || true)
+          bad=$(git ls-files | grep -E '(^|/)(__pycache__/|.*\.py[co]$|tools/companion-hooks?$|\.webp$)' || true)
           [[ -z $bad ]] || { echo "files excluded from the release are tracked:" >&2; echo "$bad" >&2; exit 1; }
           for pet in pets/*/pet.json; do
             # A pet is either drawn or blitted. A drawn one names a renderer
@@ -152,10 +152,12 @@ jobs:
       - name: maintenance scripts parse
         run: |
           set -euo pipefail
-          [[ -x tools/build-source-archive ]] \
-            || { echo "tools/build-source-archive is not executable" >&2; exit 1; }
-          bash -n tools/coldstart-check tools/perform-check tools/grokchief-recolor \
-            tools/build-source-archive tools/build-eyefit tools/verify-bloub-port
+          for t in tools/coldstart-check tools/perform-check tools/companion-recolor \
+                   tools/build-eyefit tools/verify-bloub-port tools/build-preview; do
+            [[ -x $t ]] || { echo "$t is not executable" >&2; exit 1; }
+          done
+          bash -n tools/coldstart-check tools/perform-check tools/companion-recolor \
+            tools/build-eyefit tools/verify-bloub-port tools/build-preview
           python3 - <<'PY'
           import ast
           from pathlib import Path

@@ -216,25 +216,39 @@ Canvas {
 
   function aim() {
     if (!engine || reduceMotion) return
-    if (pointer) engine.setLook(Bloub.lookAt(pointerX, pointerY, 1), now)
-    // A pointer leaving does not hand the gaze back to the pose if a script is
-    // holding it; `driveLook` owns it until the performance releases it.
-    else if (activityName !== "notice") engine.setLook(null, now)
+    if (pointer) { engine.setLook(Bloub.lookAt(pointerX, pointerY, 1), now); driving = false }
+    // A pointer leaving does not hand the gaze straight back to the pose: a
+    // script may still want it, and `driveLook` is what decides.
+    else driveLook()
     requestPaint()
   }
 
+  /** Whether a script currently holds the gaze, so it is released exactly once. */
+  property bool driving: false
+
   /**
-   * The scripted part of a performance, evaluated each frame.
+   * The scripted gaze, evaluated each frame.
    *
-   * A real pointer outranks it: the creature should look at the person rather
-   * than through them at where the script says.
+   * A real pointer outranks every script: the creature should look at the
+   * person rather than through them at where the script says.
    */
   function driveLook() {
     if (!engine || reduceMotion || pointer) return
-    if (activityName !== "notice") return
-    engine.setLook(Bloub.noticeLook(now - activityAt,
-                                    Bloub.performanceSeconds(activityName),
-                                    Bloub.shapeId(shapeId) === "cercle"), now, 0.05)
+    if (activityName === "notice") {
+      engine.setLook(Bloub.noticeLook(now - activityAt,
+                                      Bloub.performanceSeconds(activityName),
+                                      Bloub.shapeId(shapeId) === "cercle"), now, 0.05)
+      driving = true
+      return
+    }
+    if (shownMood === "working") {
+      engine.setLook(Bloub.ponderLook(now), now)
+      driving = true
+      return
+    }
+    // Nothing wants it any more. Handing it back every frame would restart the
+    // catch-up every frame and the eyes would never quite arrive.
+    if (driving) { engine.setLook(null, now); driving = false }
   }
 
   // ---------------------------------------------------------- performances

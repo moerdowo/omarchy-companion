@@ -317,7 +317,7 @@ Item {
   readonly property real speakX: tucked ? (hit.leftLimit + hit.rightLimit) / 2
                                         : body.x + body.width / 2
   // Anchor speech to the first visible artwork pixel rather than the top of
-  // its transparent atlas cell. Otherwise Gritty pays its internal top inset
+  // its transparent atlas cell. Otherwise a pet pays its internal top inset
   // on top of the intended popup gap.
   readonly property real speakTop: tucked ? hit.y : body.y + body.height * contentTop
   function contentFraction(value, fallback) {
@@ -1008,9 +1008,9 @@ Item {
 
     Accessible.role: actionable ? Accessible.Button : Accessible.StaticText
     Accessible.ignored: !visible
-    Accessible.name: moodText === "!" ? "Grok Chief needs attention"
-      : moodText === "✓" ? "Grok Chief finished"
-      : moodText === "✗" ? "Grok Chief reported an error" : "Grok Chief status"
+    Accessible.name: moodText === "!" ? "Omarchy Companion needs attention"
+      : moodText === "✓" ? "Omarchy Companion finished"
+      : moodText === "✗" ? "Omarchy Companion reported an error" : "Omarchy Companion status"
     Accessible.description: actionable ? "Open the agent console" : ""
     Accessible.focusable: actionable
     Accessible.onPressAction: if (actionable) pet.consoleRequested()
@@ -1092,7 +1092,7 @@ Item {
     Accessible.role: actionable ? Accessible.Button : Accessible.StaticText
     Accessible.ignored: !visible
     Accessible.name: pet.sayMode === "think"
-      ? (pet.doing !== "" ? "Grok Chief is working: " + pet.doing : "Grok Chief is working")
+      ? (pet.doing !== "" ? "Omarchy Companion is working: " + pet.doing : "Omarchy Companion is working")
       : pet.sayText
     Accessible.description: pet.sayMode === "error" ? "Open the agent console"
       : pet.sayMode === "say" ? "Dismiss this reply" : ""
@@ -1266,7 +1266,7 @@ Item {
     font.family: Style.font.family
     font.pixelSize: Style.font.body
     selectByMouse: true
-    Accessible.name: "Ask Grok Chief"
+    Accessible.name: "Ask Omarchy Companion"
     Accessible.description: "Enter an instruction. Press Escape to close."
     onAccepted: {
       var draft = text
@@ -1346,7 +1346,7 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.ignored: !pet.onStage
-    Accessible.name: "Grok Chief"
+    Accessible.name: "Omarchy Companion"
     Accessible.description: pet.tooltipText
     Accessible.focusable: pet.promptOpen
     Accessible.focused: activeFocus

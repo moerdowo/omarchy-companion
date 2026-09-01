@@ -1,6 +1,6 @@
-# Working on Grok Chief
+# Working on Omarchy Companion
 
-Grok Chief follows Omarchy 4's regular plugin contract. The manifest exposes
+Omarchy Companion follows Omarchy 4's regular plugin contract. The manifest exposes
 one resident `service` and one `bar-widget`:
 
 - `keystone/Service.qml` owns the creature, agent turn, state, and IPC.
@@ -54,8 +54,8 @@ are the only lines in them Node cannot read. The
 cold-start check is the integration test: it creates an empty HOME and XDG
 environment, installs this checkout there with a real `manifest.json` and
 `shell.json`, starts a fresh Quickshell process, and requires the bundled
-Gritty sheet to load. It does not read the developer's installed pets or
-plugin settings.
+planted spritesheet pet to load. It does not read the developer's installed
+pets or plugin settings.
 
 Add `keystone/BloubBody.qml` to that `qmllint` list along with the rest.
 
@@ -96,8 +96,8 @@ Install the committed checkout into a disposable desktop or test account.
 installed clone for live iteration:
 
 ```bash
-omarchy plugin add file:///absolute/path/to/grokchief --enable
-cd ~/.config/omarchy/plugins/io.github.moerdowo.grokchief
+omarchy plugin add file:///absolute/path/to/companion --enable
+cd ~/.config/omarchy/plugins/io.github.moerdowo.omarchycompanion
 $EDITOR .
 journalctl --user -t omarchy-shell -f
 ```
@@ -107,11 +107,11 @@ rescans the manifest, and reloads the affected service and widget. A shell
 restart should not be part of the normal edit loop.
 
 The service writes its public snapshot to
-`$XDG_STATE_HOME/omarchy/grokchief/status.json` (normally
-`~/.local/state/omarchy/grokchief/status.json`). For the running version:
+`$XDG_STATE_HOME/omarchy/companion/status.json` (normally
+`~/.local/state/omarchy/companion/status.json`). For the running version:
 
 ```bash
-omarchy-shell grokchief status
+omarchy-shell companion status
 ```
 
 The status command and the journal are more reliable than assuming the copy
@@ -136,26 +136,22 @@ a polished hero screenshot cannot hide a broken state.
 
 ## Pet work
 
-`tools/build-faces.py` builds expression grids and `tools/build-atlas.py`
-builds animated sheets. `tools/grokchief-recolor` is the same deterministic
-recolouring path used at runtime. Original Gritty renders are distributed as
-a separate release asset; [tools/source/README.md](../tools/source/README.md)
-documents their names and build commands.
+No spritesheet companion ships: the bundled one is drawn, and its whole body
+is `keystone/Bloub.js`. The sheet machinery is still here for anybody who
+brings their own — `tools/build-atlas.py` assembles an animated atlas and
+`tools/build-faces.py` an expression grid from a person's own renders, and
+`tools/companion-recolor` is the same deterministic recolouring path used at
+runtime.
 
-The complete schema and drawing rules are in [pets.md](pets.md). A release
-must include each `pet.json`, the exact spritesheet it names, and its NOTICE.
-Build the separate, reproducible source asset with:
+Nothing bundled exercises those any more, so they are tested against artwork
+that is generated rather than shipped: `tools/coldstart-check` plants a pet in
+an isolated `HOME` and loads it in a real shell, and the two theming tests in
+`tests/menu.test.mjs` build a themeable sheet with ImageMagick. Generated art
+is the better fixture — a known hue, an even lightness range, and an exactly
+known set of pixels that must not move, none of which anyone had to promise
+not to redraw.
 
-```bash
-asset="${TMPDIR:-/tmp}/grokchief-artwork-sources.tar.gz"
-tools/build-source-archive "$asset"
-tools/build-source-archive --check "$asset"
-```
-
-The helper fixes archive order, ownership, permissions, timestamps, and gzip
-metadata. It prints the SHA-256 to record in the release notes. The ignored
-high-resolution inputs and the resulting archive are release material, never
-part of the installed plugin checkout.
+The complete schema and drawing rules are in [pets.md](pets.md).
 
 ## Release gate
 
@@ -172,11 +168,11 @@ Before publishing or preparing a marketplace submission:
    local check above from the clone, not from the development checkout. Confirm
    `manifest.json`, the changelog version/date, current screenshots, notices,
    and every intended deletion are present in the clone.
-3. On a disposable Omarchy 4 user with no Grok Chief config, pets, state,
+3. On a disposable Omarchy 4 user with no Omarchy Companion config, pets, state,
    or prior scratchpad, install with the README command. Accept the normal
-   warning and placement prompt. Require one service, one widget, bundled
-   Gritty at size L on first paint, and exactly `gritty`, `quattro`, then
-   `gritty-front` in the picker.
+   warning and placement prompt. Require one service, one widget, and the
+   drawn companion as a small white circle on first paint. With one companion
+   bundled the picker has nothing to choose between and is left out.
 4. Exercise every visible action once and every setting twice, including the
    return path, keyboard-only use, a narrow and wide bar, multiple monitors,
    fullscreen avoidance, reduced motion, light/dark theme changes, theme off
@@ -199,10 +195,9 @@ Before publishing or preparing a marketplace submission:
    running. Require the service, widget, and child process tree to disappear;
    no hook or external application setting may remain. Only the documented
    state/history directory may survive.
-9. Build and byte-check `grokchief-artwork-sources.tar.gz` with the helper
-   above. Inspect its eight exact members, record the printed SHA-256, and
-   attach that file to release `v$(jq -r .version manifest.json)`. Confirm the
-   archive itself and `tools/source/*.png` are absent from `git ls-files`.
+9. Run `tools/verify-bloub-port` against a fresh clone of the upstream
+   project. The character is a port, and this is the only check that the
+   geometry still is one.
 10. Require the GitHub checks for `release_sha` to pass. After submission,
     require marketplace compatibility validation and the Automated Security
     Baseline to refer to that same SHA before approval. Re-run the process for

@@ -1,4 +1,4 @@
-Bloub — the drawn companion bundled with Grok Chief
+Bloub — the drawn companion bundled with Omarchy Companion
 
 This folder holds no artwork. The character is code: `keystone/Bloub.js`
 computes its outline, its eyes and its decor every frame, and `pet.json`
@@ -16,6 +16,6 @@ claim against the original engine rather than trusting it.
 `keystone/BloubFit.js` is generated, not written: `tools/build-eyefit`
 runs bloub's own eye-fit solver and prints the table it produces.
 
-Grok Chief is not affiliated with x.ai and does not reproduce anything of
+Omarchy Companion is not affiliated with x.ai and does not reproduce anything of
 theirs beyond what bloub already did — the shape of an avatar. See the
 repository's `THIRD_PARTY_NOTICES.md`.

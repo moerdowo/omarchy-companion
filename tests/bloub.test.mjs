@@ -116,7 +116,7 @@ test("every mood the plugin can be in has a state to show it as", () => {
     const id = B.stateForMood(mood)
     assert.ok(B.STATE_BY_ID[id], `${mood} -> ${id}`)
   }
-  assert.equal(B.stateForMood("working"), "thinking")
+  // `working` deliberately has no state of its own; see the turn test below.
   assert.equal(B.stateForMood("error"), "alert")
   assert.equal(B.stateForMood("success"), "burst")
   assert.equal(B.stateForMood("sleeping"), "sleep")
@@ -129,7 +129,8 @@ test("a mood may impose an expression; otherwise the person's choice stands", ()
   assert.equal(B.expressionForMood("tired", "fier"), "somnolent")
   assert.equal(B.expressionForMood("love", "fier"), "heureux")
   assert.equal(B.expressionForMood("idle", "fier"), "fier")
-  assert.equal(B.expressionForMood("working", "nonsense"), "neutre")
+  assert.equal(B.expressionForMood("working", "nonsense"), "curieux")
+  assert.equal(B.expressionForMood("parked", "nonsense"), "neutre")
 })
 
 test("an idle glance never carries news, and never repeats what is worn", () => {
@@ -177,18 +178,73 @@ test("a performance is a real state held for a sane length of time", () => {
 })
 
 test("a performance never says something is happening", () => {
-  // These four states are how the plugin reports work, waiting, failure and
-  // success. A creature that played one for its own amusement would be crying
-  // wolf, and the next real one would not be believed.
+  // These states are how the plugin reports waiting, failure and success. A
+  // creature that played one for its own amusement would be crying wolf, and
+  // the next real one would not be believed.
   const news = new Set(["thinking", "notify", "alert", "burst", "exclaim"])
   for (const performance of B.PERFORMANCES) {
     assert.ok(!news.has(performance.state), `${performance.name} performs the news`)
   }
-  // and every mood that has news maps to one of exactly those
-  for (const mood of ["working", "waiting", "error", "success"]) {
+  for (const mood of ["waiting", "error", "success"]) {
     assert.ok(news.has(B.stateForMood(mood)), mood)
   }
 })
+
+test("a turn thinks as the creature, not as a progress indicator", () => {
+  // `thinking` is one of the fourteen measured states and it stays in the
+  // catalogue, but it dissolves the body into three pulsing dots — which on a
+  // desktop is a progress bar, and a companion that vanishes into one the
+  // moment you ask it something is the opposite of the point.
+  assert.ok(B.STATE_BY_ID.thinking, "the measured state is still in the catalogue")
+  assert.equal(B.STATE_BY_ID.thinking.eyeAlpha, undefined)
+  assert.equal(B.STATE_BY_ID.thinking.pose(1).eyeAlpha, 0, "it has no face at all")
+
+  const state = B.stateForMood("working")
+  assert.notEqual(state, "thinking")
+  // the body and the face both survive a turn, so the shape, the colour and
+  // the creature stay recognisably themselves while it works
+  assert.equal(B.STATE_BY_ID[state].baseBody, true)
+  assert.equal(B.STATE_BY_ID[state].baseFace, true)
+  assert.ok(B.createEngine(R, state, "cercle", "neutre").sample(1).eyes.length > 0)
+
+  // and it is still told apart from resting: a turn imposes its own face
+  const chosen = "neutre"
+  assert.notEqual(B.expressionForMood("working", chosen), chosen)
+  assert.ok(B.EXPRESSION_BY_ID[B.expressionForMood("working", chosen)])
+  // whatever the person picked, including the one a turn happens to use
+  assert.equal(B.expressionForMood("working", "curieux"),
+               B.expressionForMood("working", "blase"))
+})
+
+test("thinking sweeps the eyes without ever losing one behind the limb", () => {
+  let widestYaw = 0
+  for (let t = 0; t < 400; t += 0.05) {
+    const look = B.ponderLook(t)
+    widestYaw = Math.max(widestYaw, Math.abs(look.yaw))
+    // It REPLACES the resting drift rather than adding to it: cumulative, the
+    // eyes would wander about a moving target and read as agitated.
+    assert.equal(look.mix, 1)
+    assert.equal(look.wander, 0)
+    assert.ok(isFinite(look.yaw + look.pitch))
+  }
+  assert.ok(widestYaw > 8, `sweep only reaches ${widestYaw.toFixed(1)} degrees`)
+  assert.ok(widestYaw < 45, "a wider sweep carries an eye past the edge of the sphere")
+
+  // Both eyes stay on the visible face for the whole sweep, and the sweep
+  // actually moves them — a thought that never moves is a frozen creature.
+  const engine = B.createEngine(R, B.stateForMood("working"), "cercle",
+                                B.expressionForMood("working", "neutre"))
+  const seen = []
+  for (let t = 0; t < 60; t += 1 / 30) {
+    engine.setLook(B.ponderLook(t), t)
+    const frame = engine.sample(t)
+    assert.equal(frame.eyes.length, 2, `lost an eye at ${t.toFixed(2)}s`)
+    seen.push(frame.eyes[0].m[4])
+  }
+  assert.ok(Math.max(...seen) - Math.min(...seen) > 15, "the eyes barely move")
+})
+
+/* ----------------------------------------------------------------- engine */
 
 test("the repertoire covers looking up, sleeping, and changing shape", () => {
   const byName = Object.fromEntries(B.PERFORMANCES.map((p) => [p.name, p]))
@@ -293,8 +349,6 @@ test("looking up actually moves the eyes, and gives them back", () => {
                          after.eyes[0].m[5] - back.eyes[0].m[5])
   assert.ok(gap < 1, `eyes ended ${gap.toFixed(2)} away from resting`)
 })
-
-/* ----------------------------------------------------------------- engine */
 
 const sig = (frame) => JSON.stringify([
   frame.bodyPts, frame.eyes, frame.dots, frame.arcs.map((a) => [a.front, a.back]),

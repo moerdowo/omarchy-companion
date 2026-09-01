@@ -1,4 +1,4 @@
-// Grok Chief's pure logic: no QML, no Quickshell, testable with plain node
+// Omarchy Companion's pure logic: no QML, no Quickshell, testable with plain node
 // (`node --test tests/`).
 //
 // The chief's whole inner life reduces to a handful of read-only inputs —
@@ -109,7 +109,7 @@ function decideAction(rand, mood, activity) {
 // ------------------------------------------------------------ sprite atlas
 //
 // The Codex/Petdex pet atlas: 8 columns of 192x208 frames, 9 rows (v1) or
-// 11 (v2). Row semantics are fixed across the ecosystem; Grok Chief uses the
+// 11 (v2). Row semantics are fixed across the ecosystem; Omarchy Companion uses the
 // directional walk rows for actual walking, which bar pets never get to do.
 var ATLAS = {
   columns: 8,
@@ -475,7 +475,7 @@ function buildGuardedRunner(cwd, argv) {
   var quoted = []
   for (var i = 0; i < argv.length; i++) quoted.push(shellQuote(argv[i]))
   return "cd " + shellQuote(cwd) + " || exit 1; owner=$$; guard=; guard_ready=0;"
-    + " ready=$(mktemp /tmp/grokchief-guard.XXXXXX) || exit 1;"
+    + " ready=$(mktemp /tmp/companion-guard.XXXXXX) || exit 1;"
     + " wait_ready() { for ((ready_step=0; ready_step<200; ready_step++)); do"
     + " [ -s \"$ready\" ] && return 0;"
     + " [ -n \"$guard\" ] && kill -0 \"$guard\" 2>/dev/null || return 1;"
@@ -557,7 +557,7 @@ function buildConsoleCommand(agent, prompt) {
   return argv
 }
 
-// An explicit override is honest only when Grok Chief knows how to launch it.
+// An explicit override is honest only when Omarchy Companion knows how to launch it.
 // The desktop default does not need this gate: Omarchy remains its launcher.
 function canOpenConsole(agent) {
   return buildConsoleCommand(String(agent || ""), "") !== null
@@ -800,7 +800,7 @@ function peekHeight(petSize) {
   if (!isFinite(size) || size <= 0) size = 56
   // Leave a recognisable piece of the drawing, not merely a hit target.
   // The extra couple of pixels matter most for still silhouettes such as
-  // Quattro, while remaining small enough to count as tucked away.
+  // a wide one, while remaining small enough to count as tucked away.
   return Math.max(15, Math.round(size * 0.145))
 }
 
@@ -880,7 +880,7 @@ function shoveProgress(grabPx, grabX, grabY, movedX, movedY, width, height, petS
 // Where a creature put away against a side or into the floor is drawn.
 //
 // Measured against what is actually drawn, not against the cell it is drawn
-// in. A sprite cell has margins — gritty's resting picture stops thirty
+// in. A sprite cell has margins — a resting picture may stop thirty
 // pixels short of its own right edge — so leaving "a cell's worth of peek"
 // showing left nothing but transparency at the screen edge, and the
 // creature vanished completely.
@@ -1000,7 +1000,7 @@ function liveTintBrightness(background, strength) {
   return towardWhite ? s * 0.49 : 0
 }
 
-// pet.json and grokchief.json both spell tinting as true/false/0..1; this is
+// pet.json and companion.json both spell tinting as true/false/0..1; this is
 // the one place that decides what a value means.
 // Which of the two theming paths applies. A pet that named its own hue
 // window is redrawn properly when that is possible; the live tint is what
@@ -1241,7 +1241,7 @@ function homeFor(homes, monitor, screenWidth, petSize, gapRight, aspect, content
 }
 
 // A fresh companion starts in the bottom-right corner. Align the visible
-// artwork, not its transparent atlas cell: wide bodies such as Quattro then
+// artwork, not its transparent atlas cell: a wide body then
 // sit fully on screen, while asymmetric cables can still meet the edge.
 function defaultHomeX(screenWidth, petSize, gapRight, aspect, content, mayMirror) {
   var width = Number(screenWidth)

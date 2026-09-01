@@ -150,19 +150,19 @@ test("bar and popout are views over the resident service", () => {
       `${name} must not poll or mirror the service through files`)
     assert.doesNotMatch(source, /\bProcess\s*\{/,
       `${name} must not shell out for service actions`)
-    assert.doesNotMatch(source, /omarchy-shell\s+grokchief/,
+    assert.doesNotMatch(source, /omarchy-shell\s+companion/,
       `${name} must call the service directly`)
   }
 
   const ipcTargets = [...service.matchAll(/\bIpcHandler\s*\{[\s\S]*?\btarget\s*:\s*"([^"]+)"/g)]
     .map((m) => m[1])
-  assert.deepEqual(ipcTargets, ["grokchief"], "only the service may own Grok Chief IPC")
+  assert.deepEqual(ipcTargets, ["companion"], "only the service may own Omarchy Companion IPC")
 })
 
 test("overview keeps only actions that add something", () => {
   assert.doesNotMatch(panel, /text:\s*"Home"/,
     "returning to a saved position is not a meaningful overview button")
-  assert.doesNotMatch(panel, /Ask Grok Chief/,
+  assert.doesNotMatch(panel, /Ask Omarchy Companion/,
     "the companion itself is already the ask affordance")
   assert.match(panel, /showPrimaryAction:\s*!ready\s*\|\|\s*!hasAgent\s*\|\|\s*working/,
     "agent setup and stopping a turn must remain reachable")
@@ -234,8 +234,8 @@ test("every setting exposed by the popout is accepted by the service", () => {
 
 test("removed invasive and obsolete features stay removed", () => {
   const runtime = `${service}\n${widget}\n${panel}`
-  assert.doesNotMatch(runtime, /grokchief-hooks?|hooksInstalled|hookSet/,
-    "Grok Chief must not install or manage another agent's hooks")
+  assert.doesNotMatch(runtime, /companion-hooks?|hooksInstalled|hookSet/,
+    "Omarchy Companion must not install or manage another agent's hooks")
   assert.doesNotMatch(runtime, /cfgConsoleAt|consoleAt\s*\(/,
     "the non-native near-creature console mode must not return")
   assert.doesNotMatch(runtime, /shouldRetryTalk|talkRetry|talkRetried/,
@@ -441,7 +441,7 @@ test("turning theme dressing off restores the original sheet immediately", () =>
 })
 
 test("legacy settings are sealed after their one-time migration", () => {
-  assert.match(service, /migrationMarker\s*:\s*"_grokchiefConfigVersion"/)
+  assert.match(service, /migrationMarker\s*:\s*"_companionConfigVersion"/)
   assert.match(service, /migrationMarked\(before\)\s*\?\s*\(\{\}\)\s*:\s*fileCfg/,
     "a marked canonical entry must never merge the retired settings file again")
   assert.match(service, /next\[root\.migrationMarker\]\s*=\s*root\.configVersion/,
@@ -503,7 +503,7 @@ test("console handoff maps one identified agent before focusing or revealing", (
   const beginEnd = service.indexOf("id: consoleLaunchTimeout", beginStart)
   const beginFlow = service.slice(beginStart, beginEnd)
   assert.match(beginFlow,
-    /consoleLaunchTag = "grokchief-launch-"[\s\S]*?consoleLaunchWorkspace = workspace[\s\S]*?consoleLaunchMonitor = root\.actionMonitor\(monitor\)/,
+    /consoleLaunchTag = "companion-launch-"[\s\S]*?consoleLaunchWorkspace = workspace[\s\S]*?consoleLaunchMonitor = root\.actionMonitor\(monitor\)/,
     "the requested toplevel gets a unique launch-only Hyprland tag")
   assert.doesNotMatch(beginFlow, /dispatchFocusMonitor|dispatchToggleSpecial/,
     "the requested monitor is remembered but must not be focused before the window maps")
@@ -624,33 +624,13 @@ test("bundled pets are safe, complete, and uniquely identified", () => {
         `${id} face ${mood} has an invalid column`)
     }
   }
-  assert.deepEqual([...ids].sort(), ["bloub", "gritty", "gritty-front", "quattro"])
-  const gritty = rgba(join(root, "pets/gritty/gritty-faces.webp"))
-  const brandPixel = (70 * gritty.width + 120) * 4
-  assert.deepEqual([...gritty.pixels.slice(brandPixel, brandPixel + 3)], [158, 206, 106],
-    "Gritty's unthemed reference midtone must be Omarchy green #9ece6a")
-  assert.ok(gritty.pixels[brandPixel + 3] >= 250,
-    "the branded reference must be a visible shell pixel")
-  assert.equal(JSON.parse(read("pets/quattro/pet.json")).mirror, true,
-    "Quattro must turn on the right so its flipped release cell always faces inward")
-  const quattro = rgba(join(root, "pets/quattro/quattro.webp"))
-  let alphaWeight = 0, alphaMomentX = 0
-  for (let i = 0; i < quattro.pixels.length; i += 4) {
-    const alpha = quattro.pixels[i + 3] / 255
-    alphaWeight += alpha
-    alphaMomentX += (i / 4 % quattro.width) * alpha
-  }
-  assert.ok(alphaWeight > 0 && alphaMomentX / alphaWeight < quattro.width / 2 - 2,
-    "Quattro's canonical cell must keep its flipped right-facing orientation")
-  assert.match(read("tools/source/README.md"), /-extent 333x208 -flop/,
-    "the documented Quattro rebuild must preserve its canonical orientation")
-  const front = JSON.parse(read("pets/gritty-front/pet.json"))
-  assert.equal(front.displayName, "Gritty, head on")
-  assert.equal(front.mirror, true,
-    "the head-on cable must turn with the body on the right half of a screen")
-  assert.match(service,
-    /priority = \{'bloub': 0, 'gritty': 1, 'quattro': 2, 'gritty-front': 3, 'glitchcat': 4\}/,
-    "the picker must keep the curated companions ahead of arbitrary local ids")
+  // One companion ships, and it is the drawn one. The spritesheet engine is
+  // still here for anybody who brings their own — tools/coldstart-check plants
+  // a pet in an isolated HOME and proves that path — but no artwork is carried
+  // in the payload any more.
+  assert.deepEqual([...ids].sort(), ["bloub"])
+  assert.match(service, /priority = \{'bloub': 0\}/,
+    "the picker must keep the bundled companion ahead of arbitrary local ids")
 })
 
 test("pet discovery never flashes the procedural emergency body", () => {
@@ -667,19 +647,47 @@ test("pet discovery never flashes the procedural emergency body", () => {
     "the Chief must neither render nor animate during manifest lookup")
 })
 
+// A themeable sheet, generated rather than shipped.
+//
+// No spritesheet companion ships any more — the bundled one is drawn — but the
+// recolour tool and the live tint still do, and they are exactly the kind of
+// code that breaks quietly. So the two tests that need artwork build their own,
+// to the shape docs/pets.md asks a themeable pet for: a body in one hue family
+// painted from shadow to highlight, and details deliberately outside that
+// window which have to survive byte for byte.
+//
+// Generated art also makes a better test than the artwork did. It has a known
+// hue, a full and even lightness range, and an exactly known set of pixels that
+// must not move — none of which anybody had to promise not to redraw.
+const THEMEABLE_SKIN = { hueMin: 40, hueMax: 175, satMin: 12 }
+
+function themeableSheet(dir) {
+  const path = join(dir, "themeable.png")
+  const made = spawnSync("magick", [
+    // body: yellow-green, highlight to shadow
+    "-size", "48x48", "gradient:#d6ecab-#16240e",
+    // and two details outside the hue window: a red cable and a white servo
+    "(", "-size", "24x48", "xc:#e8483f", ")",
+    "(", "-size", "24x48", "xc:#f2f2f2", ")",
+    "+append", path
+  ], { encoding: "utf8" })
+  assert.equal(made.status, 0, made.stderr || made.stdout)
+  return path
+}
+
 test("theme repainting clears its floor without touching unmasked artwork", () => {
   const version = spawnSync("magick", ["-version"], { encoding: "utf8" })
   assert.equal(version.status, 0, "ImageMagick 7's magick command is required")
   assert.match(version.stdout, /^Version: ImageMagick 7\./m)
-  assert.match(read("tools/grokchief-recolor"),
+  assert.match(read("tools/companion-recolor"),
     /-define webp:lossless=true -define webp:method=0/,
     "theme caches must finish inside Omarchy's reveal instead of optimizing ephemeral bytes")
-  const work = mkdtempSync(join(tmpdir(), "grokchief-recolor-"))
+  const work = mkdtempSync(join(tmpdir(), "companion-recolor-"))
   try {
-    const sourcePath = join(root, "pets/gritty/gritty-faces.webp")
+    const sourcePath = themeableSheet(work)
     const basePath = join(work, "base.webp")
     const finalPath = join(work, "final.webp")
-    const tool = join(root, "tools/grokchief-recolor")
+    const tool = join(root, "tools/companion-recolor")
     for (const args of [
       [sourcePath, finalPath, "red"],
       [sourcePath, finalPath, "#999900", "361", "100", "12"],
@@ -689,7 +697,7 @@ test("theme repainting clears its floor without touching unmasked artwork", () =
     ]) {
       const rejected = spawnSync(tool, args, { encoding: "utf8" })
       assert.equal(rejected.status, 2, rejected.stderr || rejected.stdout)
-      assert.match(rejected.stderr, /^grokchief-recolor:/)
+      assert.match(rejected.stderr, /^companion-recolor:/)
     }
     const directoryOutput = mkdtempSync(join(work, "outdir-"))
     const rejectedDirectory = spawnSync(tool,
@@ -740,7 +748,7 @@ test("theme repainting clears its floor without touching unmasked artwork", () =
       rgbSum[2] += final.pixels[i + 2] / 255 * weight
     }
     assert.equal(outsideChanged, 0, "cables, servos, eyes, and rust must remain byte-exact")
-    assert.ok(weightSum > 0, "Gritty's themeable body mask is empty")
+    assert.ok(weightSum > 0, "the themeable body mask is empty")
     const body = rgbSum.map((sum) => sum / weightSum)
     const bodyLum = luminance(body)
     const backgroundLum = luminance([0.6, 0.6, 0])
@@ -752,11 +760,13 @@ test("theme repainting clears its floor without touching unmasked artwork", () =
   }
 })
 
-test("the real Qt live-tint shader keeps bundled bodies legible and shaded", () => {
+test("the real Qt live-tint shader keeps a themeable body legible and shaded", () => {
   const clamp = (value) => Math.max(0, Math.min(1, value))
-  for (const id of ["gritty", "quattro", "gritty-front"]) {
-    const spec = JSON.parse(read(`pets/${id}/pet.json`))
-    const source = rgba(join(root, "pets", id, spec.spritesheetPath))
+  const work = mkdtempSync(join(tmpdir(), "companion-tint-"))
+  try {
+    const id = "themeable"
+    const spec = { themeable: THEMEABLE_SKIN, themeTint: 0.45 }
+    const source = rgba(themeableSheet(work))
     const skin = spec.themeable
     for (const [theme, [accentHex, backgroundHex]] of themeSamples()) {
       const accent = rgb(accentHex), background = rgb(backgroundHex)
@@ -830,6 +840,8 @@ test("the real Qt live-tint shader keeps bundled bodies legible and shaded", () 
       assert.ok(sourceRange === 0 || displayedRange / sourceRange >= 0.4,
         `${id} live tint retains only ${(100 * displayedRange / sourceRange).toFixed(1)}% luma range on ${theme}`)
     }
+  } finally {
+    rmSync(work, { recursive: true, force: true })
   }
 })
 
@@ -838,7 +850,7 @@ test("release tree contains no generated caches or hook installer", () => {
   for (const path of paths) {
     assert.doesNotMatch(path, /(^|\/)__pycache__(\/|$)|\.py[co]$/,
       `generated Python cache in release tree: ${path}`)
-    assert.doesNotMatch(path, /^tools\/grokchief-hooks?$/,
+    assert.doesNotMatch(path, /^tools\/companion-hooks?$/,
       `removed hook installer remains: ${path}`)
   }
 })
@@ -875,9 +887,11 @@ test("cold-start harness isolates user configuration and asserts bundled art", (
   // discovery, the sheet, the grid — untested by the one test that runs a real
   // shell.
   assert.match(source, /pets\/bloub/)
-  assert.match(source, /pets\/gritty/)
   assert.match(source, /drawn pet: bloub source: bundled/)
-  assert.match(source, /sprite pet: gritty source: bundled/)
+  // No spritesheet ships, so the check plants one where a person's own pets go
+  // and proves the loader and the discovery path with it.
+  assert.match(source, /omarchy-companion\/pets\/probe/)
+  assert.match(source, /sprite pet: probe source: planted/)
   assert.match(source, /legacy duplicates -> one bar entry/)
   assert.match(source, /retired file remains sealed on restart/)
   assert.match(source, /missing custom pet -> bundled bloub/)

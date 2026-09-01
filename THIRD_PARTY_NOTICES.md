@@ -2,7 +2,7 @@
 
 ## Omarchief
 
-Grok Chief is a fork of [Omarchief](https://github.com/daventhedude/omarchief)
+Omarchy Companion is a fork of [Omarchief](https://github.com/daventhedude/omarchief)
 v4.0.0, Copyright (c) 2026 Daven Niemann, distributed under the MIT license
 that this repository keeps in [LICENSE](LICENSE). Everything outside
 `keystone/Bloub*.{js,qml}` and `pets/bloub/` is that project's work, modified.
@@ -43,44 +43,16 @@ than asserting it.
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-## Gritty
-
-The Gritty spritesheet in `pets/gritty/` and the corresponding source renders
-distributed in `grokchief-artwork-sources.tar.gz` are original work by Daven
-Niemann. They are licensed under the repository's [MIT License](LICENSE).
-
 ## Omarchy material
 
-The Quattro sprite in `pets/quattro/` is adapted from
+Earlier releases of this fork bundled Gritty, original artwork by Daven
+Niemann, and Quattro, adapted from
 [`themes/tokyo-night/backgrounds/1-quattro.jpg`](https://github.com/basecamp/omarchy/blob/v4.0.0/themes/tokyo-night/backgrounds/1-quattro.jpg)
-in Omarchy v4.0.0. The release-source archive contains the high-resolution
-cutout used for that adaptation.
+in Omarchy v4.0.0, Copyright (c) David Heinemeier Hansson. Neither ships any
+more — the only companion is drawn — but both remain in this repository's Git
+history, which it inherits from Omarchief, under the MIT terms above.
 
-That upstream file is distributed by the
-[Omarchy project](https://github.com/basecamp/omarchy) under the following MIT
-license:
-
-> Copyright (c) David Heinemeier Hansson
->
-> Permission is hereby granted, free of charge, to any person obtaining a copy
-> of this software and associated documentation files (the "Software"), to deal
-> in the Software without restriction, including without limitation the rights
-> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-> copies of the Software, and to permit persons to whom the Software is
-> furnished to do so, subject to the following conditions:
->
-> The above copyright notice and this permission notice shall be included in all
-> copies or substantial portions of the Software.
->
-> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-> SOFTWARE.
-
-Grok Chief is an independent third-party project. Omarchy, x.ai, Grok, Audi,
+Omarchy Companion is an independent third-party project. Omarchy, x.ai, Grok, Audi,
 quattro, Castrol, Michelin, and all other third-party names, logos, and marks
 are the property of their respective owners. Their appearance identifies
 material already present in the upstream artwork, or the subject bloub set out

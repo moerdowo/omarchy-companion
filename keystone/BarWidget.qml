@@ -4,11 +4,11 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Grok Chief's bar surface is deliberately thin: the service owns all state,
+// Omarchy Companion's bar surface is deliberately thin: the service owns all state,
 // this instance only presents the state for its monitor and anchors Panel.qml.
 BarWidget {
   id: root
-  moduleName: "io.github.moerdowo.grokchief"
+  moduleName: "io.github.moerdowo.omarchycompanion"
 
   readonly property var service: bar && bar.shell ? bar.shell.serviceFor(moduleName) : null
   readonly property string monitorName: {
@@ -41,8 +41,8 @@ BarWidget {
     : Qt.darker(bar ? bar.barForeground : Color.foreground, 1.8)
 
   readonly property string tooltipText: {
-    if (!service) return "Grok Chief · starting"
-    var lines = ["Grok Chief · " + stateLabel(), "Agent · " + agentLabel]
+    if (!service) return "Omarchy Companion · starting"
+    var lines = ["Omarchy Companion · " + stateLabel(), "Agent · " + agentLabel]
     lines.push("Middle-click asks · right-click opens the console")
     return lines.join("\n")
   }

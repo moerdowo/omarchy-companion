@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.0.0 — 2026-09-01
+
+Renamed, and reduced to one companion. Both are breaking: the plugin id
+changed, so this installs beside the old one rather than updating it, and the
+bundled spritesheet pets are gone.
+
+- Renamed to **Omarchy Companion**: id `io.github.moerdowo.omarchycompanion`,
+  `omarchy-shell companion ...`, user pets in `~/.config/omarchy-companion/`,
+  state in `$XDG_STATE_HOME/omarchy/companion/`. Nothing carries over from the
+  previous id; settings are re-entered once.
+- Removed the bundled Gritty, Gritty head-on and Quattro artwork. The
+  spritesheet engine stays, so a pet made for this ecosystem still works, and
+  so do `tools/build-atlas.py`, `tools/build-faces.py` and
+  `tools/companion-recolor`. With one companion bundled the **Companion**
+  picker has nothing to choose between and is left out.
+- Kept those paths tested without shipping artwork to test them with.
+  `tools/coldstart-check` now plants a spritesheet pet in its isolated `HOME`
+  and loads it in a real shell — which proves the route a person's own pet
+  actually arrives by, something bundled artwork never did — and the two
+  theming tests generate a themeable sheet with ImageMagick. Generated art is
+  the better fixture: a known hue, an even lightness range, and an exactly
+  known set of pixels that must not move.
+- **Stopped turning into a progress bar while working.** An agent turn used
+  the catalogue's `thinking` state, which dissolves the body into three pulsing
+  dots. That is faithful — it is one of the fourteen states measured off the
+  video — but on a desktop three pulsing dots are a loading indicator, and a
+  companion that vanishes into one the moment you ask it something is the
+  opposite of the point. A turn now keeps the body and the face and puts the
+  thought in the eyes: a tilted head, and a slow sweep that replaces the
+  resting drift rather than adding to it, so it reads as thoughtful instead of
+  agitated. `thinking` stays in the catalogue; nothing maps to it.
+
 ## 1.2.0 — 2026-09-01
 
 - Gave the drawn companion something to do while nothing is happening. Left
@@ -56,7 +88,7 @@
 
 ## 1.0.0 — 2026-09-01
 
-Grok Chief forks [Omarchief](https://github.com/daventhedude/omarchief) 4.0.0
+Omarchy Companion forks [Omarchief](https://github.com/daventhedude/omarchief) 4.0.0
 and replaces its character. Everything about the desktop is Omarchief's; the
 entries below are what this fork changed. It carries its own plugin id, so it
 installs beside Omarchief rather than over it, and shares none of its settings
@@ -95,9 +127,9 @@ or state.
 - Added `tools/build-preview`, which redraws `preview.png` and
   `docs/expressions.png` from the shipped renderer, so the pictures in the
   documentation cannot drift from the character.
-- Renamed everything the plugin owns: id `io.github.moerdowo.grokchief`,
-  command `omarchy-shell grokchief ...`, user pets in `~/.config/grokchief/`,
-  state in `$XDG_STATE_HOME/omarchy/grokchief/`. OmaPets-compatible discovery
+- Renamed everything the plugin owns: id `io.github.moerdowo.omarchycompanion`,
+  command `omarchy-shell companion ...`, user pets in `~/.config/omarchy-companion/`,
+  state in `$XDG_STATE_HOME/omarchy/companion/`. OmaPets-compatible discovery
   and status reading are unchanged.
 - Kept the three spritesheet companions, the atlas and face builders, and the
   theme-recolour tool. Bloub is only the default.

@@ -7,7 +7,7 @@ import qs.Commons
 import "Model.js" as Model
 import "Bloub.js" as Bloub
 
-// Grok Chief — your desktop's chief of staff.
+// Omarchy Companion — your desktop's chief of staff.
 //
 // Resident service and stage. One click-through strip per monitor makes the
 // whole arrangement a single walkable world: the chief lives on exactly one
@@ -38,7 +38,7 @@ Item {
     command: ["bash", "-c",
       "umask 077; mkdir -p -- \"$1\" \"$2\"; chmod 700 -- \"$1\" \"$2\"; "
       + "find \"$1\" -maxdepth 1 -type f -exec chmod 600 -- {} +",
-      "grokchief-state", root.statusDir, root.themedDir]
+      "companion-state", root.statusDir, root.themedDir]
     onExited: function(code) {
       root.stateReady = code === 0
       root.stateInitDone = true
@@ -58,7 +58,7 @@ Item {
   // source of truth.
   property var shell: null
   readonly property string entryId: manifest && manifest.id ? String(manifest.id)
-                                                            : "io.github.moerdowo.grokchief"
+                                                            : "io.github.moerdowo.omarchycompanion"
   readonly property var entrySettings: {
     if (!shell || !shell.shellConfig) return null
     var c = shell.shellConfig
@@ -77,7 +77,7 @@ Item {
   property var fileCfg: ({})
   property bool legacyLoaded: false
   property bool configMigrated: false
-  readonly property string migrationMarker: "_grokchiefConfigVersion"
+  readonly property string migrationMarker: "_companionConfigVersion"
   readonly property int configVersion: 1
 
   function migrationMarked(config) {
@@ -107,7 +107,7 @@ Item {
     if (e) for (var j in e) if (root.allowedSetting(j)) out[j] = e[j]
     return out
   }
-  readonly property string configFile: root.home + "/.config/omarchy/grokchief.json"
+  readonly property string configFile: root.home + "/.config/omarchy/companion.json"
   readonly property var settingKeys: [
     "activity", "activityChance", "activityRestSec", "agent", "color",
     "edgeGap", "expression", "expressionChance", "expressions", "followFocus",
@@ -141,7 +141,7 @@ Item {
 
     // Once a canonical entry carries the marker, the retired file is inert.
     // This matters after a person removes a migrated key: a later restart
-    // must not resurrect the old value from ~/.config/omarchy/grokchief.json.
+    // must not resurrect the old value from ~/.config/omarchy/companion.json.
     var merged = root.mergeSettings(({}), root.migrationMarked(before) ? ({}) : fileCfg)
     var top = null
     for (var p = 0; p < next.plugins.length; p++) {
@@ -231,13 +231,13 @@ Item {
     "    seen.add(ident)\n" +
     "    name = ' '.join(str(data.get('displayName') or data.get('name') or ident).split())[:48] or ident\n" +
     "    out.append({'id': ident, 'name': name, 'dir': os.path.join(base, ident)})\n" +
-    "priority = {'bloub': 0, 'gritty': 1, 'quattro': 2, 'gritty-front': 3, 'glitchcat': 4}\n" +
+    "priority = {'bloub': 0}\n" +
     "out.sort(key=lambda pet: (priority.get(pet['id'], 4), pet['name'].casefold(), pet['id'].casefold()))\n" +
     "print(json.dumps(out, ensure_ascii=False))\n"
   Process {
     id: petScan
     command: ["python3", "-c", root.petScanScript,
-      root.home + "/.config/grokchief/pets",
+      root.home + "/.config/omarchy-companion/pets",
       root.home + "/.config/omapets/pets",
       root.pluginDir + "/pets"]
     stdout: StdioCollector {
@@ -263,7 +263,7 @@ Item {
     onFileChanged: reload()
     onLoaded: {
       try { root.fileCfg = JSON.parse(String(text() || "")) || {} }
-      catch (e) { console.warn("grokchief: ignoring bad grokchief.json:", e) }
+      catch (e) { console.warn("companion: ignoring bad companion.json:", e) }
       root.legacyLoaded = true
       configMigration.restart()
     }
@@ -347,7 +347,7 @@ Item {
   }
 
   // Keep the resident contract concise; runtime facts ride on every turn.
-  readonly property string defaultPreamble: "You are Grok Chief, the resident chief of staff of this Omarchy Linux desktop. Carry out the user's order unattended. Prefer the desktop's supported `omarchy`, `omarchy-shell`, and Hyprland controls so its state stays coherent and actions remain undoable. Never install software or make an irreversible change unless the order expressly asks for it. If ambiguity could materially change the result, ask one short question.\n\nYour reply appears in a compact speech bubble: answer in the user's language, plain text, no markdown, in at most two short sentences. Do the work before reporting it. When a result needs to be seen, open it in the user's configured browser, editor, file manager, or terminal instead of printing it.\n\nYour standing notes are at " + root.notesPath + ". Read them only when prior context matters and append only durable preferences or facts."
+  readonly property string defaultPreamble: "You are Omarchy Companion, the resident chief of staff of this Omarchy Linux desktop. Carry out the user's order unattended. Prefer the desktop's supported `omarchy`, `omarchy-shell`, and Hyprland controls so its state stays coherent and actions remain undoable. Never install software or make an irreversible change unless the order expressly asks for it. If ambiguity could materially change the result, ask one short question.\n\nYour reply appears in a compact speech bubble: answer in the user's language, plain text, no markdown, in at most two short sentences. Do the work before reporting it. When a result needs to be seen, open it in the user's configured browser, editor, file manager, or terminal instead of printing it.\n\nYour standing notes are at " + root.notesPath + ". Read them only when prior context matters and append only durable preferences or facts."
   readonly property int preambleMax: 8000
   readonly property int orderMax: 8000
   readonly property string preamble:
@@ -540,7 +540,7 @@ Item {
   // the rest of our state rather than in the user's config, because it is a
   // placement, not a preference.
 
-  readonly property string homeFile: stateHome + "/omarchy/grokchief/home.json"
+  readonly property string homeFile: stateHome + "/omarchy/companion/home.json"
   property var homes: ({})
   // A drag or travel can beat the asynchronous first read. Keep every new
   // position and the last chosen monitor until the disk state is available,
@@ -1032,7 +1032,7 @@ Item {
   readonly property int consoleWindows: consoleWindowKeys.length
   // The scratchpad is shared by Omarchy. It is our console only when an
   // Omarchy agent window is actually in it; a visible music player or other
-  // scratchpad resident must never be toggled by Grok Chief's console button.
+  // scratchpad resident must never be toggled by Omarchy Companion's console button.
   readonly property bool consoleOpen: consoleWorkspaceOpen && consoleWindows > 0
   onConsoleWindowKeysChanged: root.probeConsoleLaunch()
   readonly property var fullscreenMonitors: {
@@ -1121,7 +1121,7 @@ Item {
     if (pluginDir === "") return []
     var p = cfgPet
     if (p === "") return []
-    var out = [home + "/.config/grokchief/pets/" + p,
+    var out = [home + "/.config/omarchy-companion/pets/" + p,
                home + "/.config/omapets/pets/" + p,
                pluginDir + "/pets/" + p]
     if (p !== "bloub") out.push(pluginDir + "/pets/bloub")
@@ -1258,7 +1258,7 @@ Item {
   // fallback traversal into the next event turn and guard it against a pet
   // choice that changed while the failure was being delivered.
   function rejectPet(message) {
-    if (message) console.warn("grokchief:", message)
+    if (message) console.warn("companion:", message)
     root.spriteOk = false
     root.petResolved = false
     root.failedPetIndex = root.petDirIndex
@@ -1308,7 +1308,7 @@ Item {
         // number only ever meant nine or eleven.
         root.spriteRows = isFinite(Number(pet.rows)) && Number(pet.rows) > 0 && Number(pet.rows) <= 64
           ? Math.floor(Number(pet.rows)) : Model.atlasRowCount(pet.spriteVersionNumber)
-        // grokchief.json wins over the pet's own preference, so a user can
+        // companion.json wins over the pet's own preference, so a user can
         // dress or undress any pet without editing artwork they downloaded.
         root.petTint = Model.tintStrength(root.cfg.themeTint !== undefined ? root.cfg.themeTint : pet.themeTint, 0)
         root.spriteSleepRow = isFinite(Number(pet.sleepRow)) && Number(pet.sleepRow) >= 0
@@ -1353,7 +1353,7 @@ Item {
   // state, and a stamp file records which accent it was made for, so a
   // shell restart does not redo work that is already done.
 
-  readonly property string themedDir: stateHome + "/omarchy/grokchief/themed"
+  readonly property string themedDir: stateHome + "/omarchy/companion/themed"
   // One themed sheet per accent, named for it. Redrawing takes a second;
   // switching between themes the creature has already worn should not. The
   // sheet for the old accent stays on disk, so switching back is a stat and
@@ -1515,9 +1515,9 @@ Item {
     var spec = spriteThemeable || {}
     var source = String(spriteBaseSource).replace(/^file:\/\//, "").replace(/\?.*$/, "")
     try { source = decodeURIComponent(source) } catch (e) {
-      console.warn("grokchief: could not decode pet artwork path:", e)
+      console.warn("companion: could not decode pet artwork path:", e)
     }
-    var tool = pluginDir + "/tools/grokchief-recolor"
+    var tool = pluginDir + "/tools/companion-recolor"
     // One stamp per sheet, beside it: what it was drawn for and which
     // artwork it came from. A theme worn before is then a single comparison,
     // with nothing to sweep and no way to delete the sheet just written.
@@ -1962,7 +1962,7 @@ Item {
   property bool welcomed: true
   FileView {
     id: welcomeStore
-    path: root.stateHome + "/omarchy/grokchief/welcomed"
+    path: root.stateHome + "/omarchy/companion/welcomed"
     atomicWrites: true
     printErrors: false
     onLoaded: root.welcomed = true
@@ -2029,7 +2029,7 @@ Item {
     if (actions.length === 1) { root.dispatch(actions[0]); return }
     var argv = ["bash", "-lc",
       "for action do hyprctl dispatch \"$action\" >/dev/null || exit; done",
-      "grokchief-dispatch"]
+      "companion-dispatch"]
     for (var j = 0; j < actions.length; j++) argv.push(String(actions[j]))
     Quickshell.execDetached(argv)
   }
@@ -2128,7 +2128,7 @@ Item {
       "hyprctl clients -j 2>/dev/null | jq -r --arg ws \"$1\" --arg tag \"$2\" "
       + "'first(.[] | select((.class == \"org.omarchy.agent\" or .initialClass == \"org.omarchy.agent\") "
       + "and .workspace.name == $ws and any(.tags[]?; rtrimstr(\"*\") == $tag)) | .address) // empty'",
-      "grokchief-console-verify", "special:" + root.consoleLaunchWorkspace,
+      "companion-console-verify", "special:" + root.consoleLaunchWorkspace,
       root.consoleLaunchTag]
     stdout: StdioCollector {
       waitForEnd: true
@@ -2195,7 +2195,7 @@ Item {
     var baseline = ({})
     for (var i = 0; i < keys.length; i++) baseline[keys[i]] = true
     root.consoleLaunchWindowBaseline = baseline
-    root.consoleLaunchTag = "grokchief-launch-" + Date.now().toString(36)
+    root.consoleLaunchTag = "companion-launch-" + Date.now().toString(36)
       + "-" + Math.floor(Math.random() * 0x1000000).toString(36)
     root.consoleLaunchVerifiedKey = ""
     root.consoleLaunchCandidate = ""
@@ -2323,9 +2323,9 @@ Item {
 
   // ------------------------------------------------------------ IPC
   //
-  //   omarchy-shell grokchief ask | summon | toggle | show | hide | status
-  //   omarchy-shell grokchief order "open spotify on DP-2"
-  //   omarchy-shell grokchief travel DP-2
+  //   omarchy-shell companion ask | summon | toggle | show | hide | status
+  //   omarchy-shell companion order "open spotify on DP-2"
+  //   omarchy-shell companion travel DP-2
 
   property bool shown: true
   // Slid mostly off its edge, out of the way. A click brings it back.
@@ -2340,7 +2340,7 @@ Item {
   // The chief's inner state, published as a small JSON file for scripts and
   // diagnostics. It is a read-only mirror; the bar binds to this service
   // directly and never waits for a file round-trip.
-  readonly property string statusDir: stateHome + "/omarchy/grokchief"
+  readonly property string statusDir: stateHome + "/omarchy/companion"
 
   function statusJson() {
     return JSON.stringify({
@@ -2623,7 +2623,7 @@ Item {
   }
 
   IpcHandler {
-    target: "grokchief"
+    target: "companion"
 
     function ask(): void { root.askOn("") }
     function order(text: string): string { root.shown = true; return root.runOrder(text) }
@@ -2827,7 +2827,7 @@ Item {
       exclusionMode: ExclusionMode.Normal
       exclusiveZone: 0
       mask: chiefLoader.item ? chiefLoader.item.inputRegion : null
-      WlrLayershell.namespace: "grokchief"
+      WlrLayershell.namespace: "omarchy-companion"
 
       // Prime with Exclusive on every open, then settle on OnDemand — the
       // KeyboardPanel recipe. Hyprland focuses OnDemand when a surface

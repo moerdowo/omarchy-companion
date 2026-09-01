@@ -1,23 +1,23 @@
-# Making a pet for Grok Chief
+# Making a pet for Omarchy Companion
 
 A pet is a folder with a `pet.json` and one spritesheet. Drop it into
-`~/.config/grokchief/pets/<id>/` and it appears under **Companion** in the
+`~/.config/omarchy-companion/pets/<id>/` and it appears under **Companion** in the
 bar widget's settings. To name it without the panel:
 
 ```bash
-omarchy-shell grokchief pet <id>
+omarchy-shell companion pet <id>
 ```
 
 which writes `pet` onto this plugin's entry in
 `~/.config/omarchy/shell.json`, where the shell keeps every plugin's
-settings. A pre-4.0 `~/.config/omarchy/grokchief.json` is read once and
+settings. A pre-4.0 `~/.config/omarchy/companion.json` is read once and
 migrated there, so an older setup keeps working without creating two sources
 of truth.
 
 Codex/Petdex v1 and v2 pets work as they are. Rows 0–8 keep their standard
 meaning. A v2 manifest sets `spriteVersionNumber` to `2` and reserves rows
-9–10 for its sixteen look directions; Grok Chief leaves those rows intact.
-Optional Grok Chief activities are explicitly declared and belong after the
+9–10 for its sixteen look directions; Omarchy Companion leaves those rows intact.
+Optional Omarchy Companion activities are explicitly declared and belong after the
 standard atlas: row 9 onward for v1, row 11 onward for v2.
 
 ## A pet that has no artwork
@@ -62,7 +62,7 @@ room for it; nothing else here needs to change.
 Every sheet is a regular grid of equal-size cells. A Codex/Petdex animated
 atlas uses the ecosystem's eight columns of 192 × 208 frames. An expression
 grid may declare another `columns` value and may use rectangular cells of any
-proportion; Grok Chief measures their aspect ratio from the loaded sheet.
+proportion; Omarchy Companion measures their aspect ratio from the loaded sheet.
 Keep the sheet width evenly divisible by `columns` and its height evenly
 divisible by `rows`, so filtering never samples across a cell boundary.
 
@@ -181,13 +181,13 @@ but lightness left to tell it apart. Those get 4.5:1 instead. A desktop
 that is a neutral is exempt: hue was never going to separate anything
 there, and the pet's own colour already does.
 
-Set `GROKCHIEF_CONTRAST_FLOOR` to override the whole judgement.
+Set `OMARCHY_COMPANION_CONTRAST_FLOOR` to override the whole judgement.
 
 **What this asks of the artwork:** keep the surfaces you want recoloured
 inside one hue family, and paint them with the full range from shadow to
 highlight. Anything that should stay itself — cables, metal, eyes, rust —
-simply lives outside that window. Gritty's shell is yellow-green, and its
-red cables, white servos and brown boots survive every theme.
+simply lives outside that window. A creature whose shell is yellow-green
+keeps its red cables, white servos and brown boots through every theme.
 
 ## Drawing the frames
 
@@ -334,12 +334,12 @@ plate or a name — reads backwards the moment you do.
 Nothing says a sheet needs more than one cell. `rows: 1`, `columns: 1`
 and `faces: { "idle": [0, 0] }` is a complete pet: it rests, it wears
 your theme if it has a hue window, it can be dragged, and that is all.
-`quattro`, bundled with Grok Chief, is built that way.
+A single still pose, such as a vehicle or a portrait, is built that way.
 
 ## Building an animated sheet
 
 `tools/build-atlas.py` does all of the above. Supply your own aligned renders;
-the paths below are examples and are not part of Grok Chief's artwork-source
+the paths below are examples and are not part of Omarchy Companion's artwork-source
 archive:
 
 ```bash
