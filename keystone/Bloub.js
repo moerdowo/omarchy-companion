@@ -2043,6 +2043,40 @@ function inkFor(id, accent) {
 /* ------------------------------------------------------------------ paint */
 
 /**
+ * The creature as a bar icon: its outline in one colour, eyes punched clean
+ * through.
+ *
+ * A bar icon is not a small drawing of the creature, it is a MARK. It carries
+ * no decor, holds still, and takes the bar's own foreground like every glyph
+ * beside it — a mark that kept its own colours would be the one unthemed thing
+ * in the row and would read as wrong.
+ *
+ * The eyes are cut with `destination-out` rather than filled with a background
+ * colour, because a bar may be transparent and there is no colour that is
+ * right for a hole in that case. That works here and not on the desktop only
+ * because this canvas holds nothing but the creature: erasing takes whatever
+ * is underneath with it, and on the desktop that would include the half of an
+ * orbit drawn behind the body.
+ */
+function paintMark(ctx, frame, ink) {
+  ctx.globalAlpha = 1
+  ctx.beginPath()
+  traceClosed(ctx, frame.bodyPts)
+  ctx.fillStyle = ink
+  ctx.fill()
+
+  ctx.globalCompositeOperation = "destination-out"
+  for (var i = 0; i < frame.eyes.length; i++) {
+    var e = frame.eyes[i]
+    if (e.alpha < 0.5) continue
+    ctx.beginPath()
+    traceCapsule(ctx, e.w, e.h, e.m)
+    ctx.fill()
+  }
+  ctx.globalCompositeOperation = "source-over"
+}
+
+/**
  * Draws one sampled frame onto a Canvas context whose origin is the bot's
  * centre.
  *

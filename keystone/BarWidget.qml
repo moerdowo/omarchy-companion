@@ -40,6 +40,17 @@ BarWidget {
     : shown && hasAgent ? (bar ? bar.barForeground : Color.foreground)
     : Qt.darker(bar ? bar.barForeground : Color.foreground, 1.8)
 
+  // What the creature is wearing, so the bar's mark is the same character as
+  // the one on the desktop rather than a stand-in for it.
+  readonly property string shapeId: service ? String(service.cfgShape || "") : ""
+  readonly property string expressionId: service ? String(service.cfgExpression || "") : ""
+  readonly property bool drawn: service ? service.bloubPet === true : true
+
+  // Ink, not an em box. A bar's glyphs carry their drawing inside a font cell
+  // that is larger than the ink in it, so a mark drawn at the full icon size
+  // comes out visibly bigger than everything beside it.
+  readonly property int markSize: Math.max(11, Math.round(Style.bar.iconFont * 0.72))
+
   readonly property string tooltipText: {
     if (!service) return "Omarchy Companion · starting"
     var lines = ["Omarchy Companion · " + stateLabel(), "Agent · " + agentLabel]
@@ -113,23 +124,47 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰚩"
+    // The mark is drawn rather than typed when the companion is the drawn one;
+    // a spritesheet pet keeps the glyph, since there is nothing to draw it
+    // from that would survive being seventeen pixels wide.
+    text: root.drawn ? "" : "󰚩"
+    hasVisualContent: true
+    fixedWidth: root.drawn
+      ? Math.round(root.markSize + Style.spaceReal(8.5) * 2) : -1
     fontSize: Style.bar.iconFont
     horizontalMargin: 8.5
     active: root.urgent
     tooltipText: root.tooltipText
 
+    CompanionMark {
+      anchors.centerIn: parent
+      visible: root.drawn
+      size: root.markSize
+      shapeId: root.shapeId
+      expressionId: root.expressionId
+      mood: root.mood
+      // Exactly what WidgetButton paints its own glyph with, so the mark
+      // brightens and dims with the row instead of beside it.
+      ink: button.active && button.useActiveColor ? button.activeColor : button.foreground
+    }
+
     // A restrained state mark keeps the creature readable without turning
     // ordinary work into an alarm.
+    //
+    // It sits ON the creature rather than in the button's corner. A glyph
+    // fills most of its cell, so a corner was close enough to read as part of
+    // it; the drawn mark is ink only, and a dot left in the corner detached
+    // itself and read as a stray pixel in the bar. Measured at the time: the
+    // mark's ink ended eleven physical pixels above where the dot began.
     Rectangle {
       z: 2
       width: Style.space(4)
       height: width
       radius: width / 2
-      anchors.right: parent.right
-      anchors.bottom: parent.bottom
-      anchors.rightMargin: Style.space(2)
-      anchors.bottomMargin: Style.space(2)
+      x: root.drawn ? Math.round(parent.width / 2 + root.markSize * 0.24)
+                    : parent.width - width - Style.space(2)
+      y: root.drawn ? Math.round(parent.height / 2 + root.markSize * 0.16)
+                    : parent.height - height - Style.space(2)
       color: root.stateColor
       opacity: root.service ? 0.95 : 0.35
     }

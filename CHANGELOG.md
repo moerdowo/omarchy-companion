@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.1.0 — 2026-09-01
+
+- Made the bar icon the creature. It was a Nerd Font robot glyph; it is now
+  the same character, in whichever shape is chosen, so the mark in the bar and
+  the creature on the desktop are recognisably one thing.
+- Drew it as a mark rather than a miniature. It holds one pose — a bar icon
+  that drifts and blinks beside a row of still glyphs is a distraction — takes
+  the bar's own foreground like every glyph next to it, and repaints only when
+  something it draws changes, so there is no timer per bar per monitor.
+- Cut the eyes with `destination-out` instead of filling them with a
+  background colour, because a bar may be transparent and no colour is right
+  for a hole in that case.
+- Faced it front. At eleven pixels the resting gaze — up and to the right —
+  puts both eyes against the edge of the body, the outer one foreshortened to
+  about two thirds, and the pair stops reading as a face. Turned to the front
+  they are level, equal and unmistakable.
+- Sized it by measurement, not by eye. A bar's glyphs carry their ink inside a
+  larger font cell, so a mark drawn at the icon font size comes out visibly
+  bigger than its neighbours; drawn at 0.72 of it, the mark measures 18
+  physical pixels of ink against their 17, centred to within half a pixel.
+- Moved the state dot onto the creature. In the button's corner it was close
+  enough to a glyph to read as part of it, but the mark is ink only and the
+  dot detached — eleven physical pixels below where the mark ended — reading
+  as a stray pixel in the bar. It is a badge on the shoulder now.
+
 ## 2.0.0 — 2026-09-01
 
 Renamed, and reduced to one companion. Both are breaking: the plugin id

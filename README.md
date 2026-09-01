@@ -63,7 +63,8 @@ none of its state.
   tuck it away; pull the visible part back out when you want it.
 - Open the bar widget for status, the latest answer, quick actions, and
   settings. Middle-click asks from that bar's monitor;
-  right-click opens the console there.
+  right-click opens the console there. Its icon is the same creature, in
+  whichever shape you chose, drawn in the bar's own colour.
 - Start a new conversation whenever context should not carry forward.
 - The drawn companion watches your pointer while it is over it, and finds
   things to do with itself while nothing is happening — including looking up

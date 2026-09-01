@@ -591,6 +591,36 @@ test("painting fills a body, then cuts the eyes out of it", () => {
                names.filter((n) => n === "restore").length)
 })
 
+test("the bar mark is one colour with the eyes cut clean through it", () => {
+  const engine = B.createEngine(24, "idle", "cercle", "neutre")
+  engine.setLook(B.lookAt(0, 0, 1), 0)
+  const ctx = recordingContext()
+  B.paintMark(ctx, engine.sample(1), "#c0caf5")
+  const names = ctx.calls.map((c) => c[0])
+  const fills = ctx.calls.filter((c) => c[0] === "=fillStyle").map((c) => c[1])
+
+  // One colour only. A bar icon that kept the creature's own would be the one
+  // unthemed thing in the row.
+  assert.deepEqual([...new Set(fills)], ["#c0caf5"])
+
+  // The eyes are erased rather than painted over, because a bar may be
+  // transparent and no colour is right for a hole in that case.
+  const composites = ctx.calls.filter((c) => c[0] === "=globalCompositeOperation")
+    .map((c) => c[1])
+  assert.deepEqual(composites, ["destination-out", "source-over"],
+    "the cut must be closed again, or everything drawn after it erases too")
+  assert.ok(names.includes("bezierCurveTo"))
+
+  // No decor: the mark holds still and carries nothing but the creature.
+  assert.ok(!names.includes("createLinearGradient"))
+  assert.ok(!names.includes("stroke"))
+
+  // Even for a state that has plenty of decor to ignore.
+  const busy = recordingContext()
+  B.paintMark(busy, B.createEngine(24, "orbit", "cercle", "neutre").sample(1), "#fff")
+  assert.ok(!busy.calls.map((c) => c[0]).includes("stroke"))
+})
+
 test("the decorated states paint their rings on both sides of the body", () => {
   for (const id of ["orbit", "comet", "burst", "alert", "notify"]) {
     const ctx = recordingContext()
