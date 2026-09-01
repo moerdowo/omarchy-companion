@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.daventhedude.omarchief",
-  "name": "Omarchief",
-  "version": "4.0.0",
-  "author": "daventhedude",
+  "id": "io.github.moerdowo.grokchief",
+  "name": "Grok Chief",
+  "version": "1.0.0",
+  "author": "moerdowo",
   "license": "MIT",
-  "description": "Your desktop's chief of staff: an Omarchy-native, theme-aware companion that lives at the screen edge, takes orders through your configured AI agent, and keeps session-aware conversations in place. Drag or tuck it, move it across monitors, get replies in a bubble or hand work to Omarchy's native console, and keep status and settings one click away in the bar — without a daemon, hook, or extra package.",
+  "description": "Your desktop's chief of staff, wearing a drawn companion: an Omarchy-native creature that lives at the screen edge, takes orders through your configured AI agent, and keeps session-aware conversations in place. Its body is computed rather than blitted, so its shape, its colour and its resting expression are settings that morph rather than artwork that cuts. Drag or tuck it, move it across monitors, get replies in a bubble or hand work to Omarchy's native console, and keep status and settings one click away in the bar — without a daemon, hook, or extra package.",
   "kinds": [
     "service",
     "bar-widget"
@@ -15,12 +15,12 @@
     "barWidget": "keystone/BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Omarchief",
-    "description": "Ask, check status, and tune your desktop companion.",
+    "displayName": "Grok Chief",
+    "description": "Ask, check status, and dress your desktop companion.",
     "category": "AI",
     "allowMultiple": false,
     "defaultSection": "right"
   },
-  "homepage": "https://github.com/daventhedude/omarchief",
-  "repository": "https://github.com/daventhedude/omarchief"
+  "homepage": "https://github.com/moerdowo/grok-chief",
+  "repository": "https://github.com/moerdowo/grok-chief"
 }

@@ -5,8 +5,9 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import qs.Commons
 import "Model.js" as Model
+import "Bloub.js" as Bloub
 
-// Omarchief — your desktop's chief of staff.
+// Grok Chief — your desktop's chief of staff.
 //
 // Resident service and stage. One click-through strip per monitor makes the
 // whole arrangement a single walkable world: the chief lives on exactly one
@@ -37,7 +38,7 @@ Item {
     command: ["bash", "-c",
       "umask 077; mkdir -p -- \"$1\" \"$2\"; chmod 700 -- \"$1\" \"$2\"; "
       + "find \"$1\" -maxdepth 1 -type f -exec chmod 600 -- {} +",
-      "omarchief-state", root.statusDir, root.themedDir]
+      "grokchief-state", root.statusDir, root.themedDir]
     onExited: function(code) {
       root.stateReady = code === 0
       root.stateInitDone = true
@@ -57,7 +58,7 @@ Item {
   // source of truth.
   property var shell: null
   readonly property string entryId: manifest && manifest.id ? String(manifest.id)
-                                                            : "io.github.daventhedude.omarchief"
+                                                            : "io.github.moerdowo.grokchief"
   readonly property var entrySettings: {
     if (!shell || !shell.shellConfig) return null
     var c = shell.shellConfig
@@ -76,7 +77,7 @@ Item {
   property var fileCfg: ({})
   property bool legacyLoaded: false
   property bool configMigrated: false
-  readonly property string migrationMarker: "_omarchiefConfigVersion"
+  readonly property string migrationMarker: "_grokchiefConfigVersion"
   readonly property int configVersion: 1
 
   function migrationMarked(config) {
@@ -106,13 +107,14 @@ Item {
     if (e) for (var j in e) if (root.allowedSetting(j)) out[j] = e[j]
     return out
   }
-  readonly property string configFile: root.home + "/.config/omarchy/omarchief.json"
+  readonly property string configFile: root.home + "/.config/omarchy/grokchief.json"
   readonly property var settingKeys: [
-    "activity", "activityChance", "activityRestSec", "agent", "edgeGap",
-    "expressionChance", "expressions", "followFocus", "frameIntervalMs",
-    "hideOnFullscreen", "patienceSec", "pet", "promptPreamble",
-    "reduceMotion", "roam", "screen", "sessionIdleMin", "size", "speakMax",
-    "talk", "theme", "themeTint", "turnTimeoutSec", "workdir"
+    "activity", "activityChance", "activityRestSec", "agent", "color",
+    "edgeGap", "expression", "expressionChance", "expressions", "followFocus",
+    "frameIntervalMs", "hideOnFullscreen", "patienceSec", "pet",
+    "promptPreamble", "reduceMotion", "roam", "screen", "sessionIdleMin",
+    "shape", "size", "speakMax", "talk", "theme", "themeTint",
+    "turnTimeoutSec", "workdir"
   ]
 
   function allowedSetting(key) {
@@ -139,7 +141,7 @@ Item {
 
     // Once a canonical entry carries the marker, the retired file is inert.
     // This matters after a person removes a migrated key: a later restart
-    // must not resurrect the old value from ~/.config/omarchy/omarchief.json.
+    // must not resurrect the old value from ~/.config/omarchy/grokchief.json.
     var merged = root.mergeSettings(({}), root.migrationMarked(before) ? ({}) : fileCfg)
     var top = null
     for (var p = 0; p < next.plugins.length; p++) {
@@ -229,13 +231,13 @@ Item {
     "    seen.add(ident)\n" +
     "    name = ' '.join(str(data.get('displayName') or data.get('name') or ident).split())[:48] or ident\n" +
     "    out.append({'id': ident, 'name': name, 'dir': os.path.join(base, ident)})\n" +
-    "priority = {'gritty': 0, 'quattro': 1, 'gritty-front': 2, 'glitchcat': 3}\n" +
+    "priority = {'bloub': 0, 'gritty': 1, 'quattro': 2, 'gritty-front': 3, 'glitchcat': 4}\n" +
     "out.sort(key=lambda pet: (priority.get(pet['id'], 4), pet['name'].casefold(), pet['id'].casefold()))\n" +
     "print(json.dumps(out, ensure_ascii=False))\n"
   Process {
     id: petScan
     command: ["python3", "-c", root.petScanScript,
-      root.home + "/.config/omarchief/pets",
+      root.home + "/.config/grokchief/pets",
       root.home + "/.config/omapets/pets",
       root.pluginDir + "/pets"]
     stdout: StdioCollector {
@@ -261,7 +263,7 @@ Item {
     onFileChanged: reload()
     onLoaded: {
       try { root.fileCfg = JSON.parse(String(text() || "")) || {} }
-      catch (e) { console.warn("omarchief: ignoring bad omarchief.json:", e) }
+      catch (e) { console.warn("grokchief: ignoring bad grokchief.json:", e) }
       root.legacyLoaded = true
       configMigration.restart()
     }
@@ -303,7 +305,13 @@ Item {
   // A fresh install wears the pet it ships with. Invalid or missing ids fall
   // back to it too, so a broken preference never leaves an empty stage.
   readonly property string cfgPet: typeof cfg.pet === "string" && Model.safeId(cfg.pet)
-    ? cfg.pet : "gritty"
+    ? cfg.pet : "bloub"
+  // What a drawn companion is wearing. Each falls back to its own default
+  // rather than to nothing, because these come out of shell.json and a value
+  // somebody typed by hand must never leave the stage empty.
+  readonly property string cfgShape: Bloub.shapeId(cfg.shape)
+  readonly property string cfgColor: Bloub.colorId(cfg.color)
+  readonly property string cfgExpression: Bloub.expressionId(cfg.expression)
   // A creature that stays where you put it is a companion; one that paces
   // the screen is a screensaver. Roaming is opt-in.
   // How often the creature finds something to do, and how long it rests
@@ -339,7 +347,7 @@ Item {
   }
 
   // Keep the resident contract concise; runtime facts ride on every turn.
-  readonly property string defaultPreamble: "You are Omarchief, the resident chief of staff of this Omarchy Linux desktop. Carry out the user's order unattended. Prefer the desktop's supported `omarchy`, `omarchy-shell`, and Hyprland controls so its state stays coherent and actions remain undoable. Never install software or make an irreversible change unless the order expressly asks for it. If ambiguity could materially change the result, ask one short question.\n\nYour reply appears in a compact speech bubble: answer in the user's language, plain text, no markdown, in at most two short sentences. Do the work before reporting it. When a result needs to be seen, open it in the user's configured browser, editor, file manager, or terminal instead of printing it.\n\nYour standing notes are at " + root.notesPath + ". Read them only when prior context matters and append only durable preferences or facts."
+  readonly property string defaultPreamble: "You are Grok Chief, the resident chief of staff of this Omarchy Linux desktop. Carry out the user's order unattended. Prefer the desktop's supported `omarchy`, `omarchy-shell`, and Hyprland controls so its state stays coherent and actions remain undoable. Never install software or make an irreversible change unless the order expressly asks for it. If ambiguity could materially change the result, ask one short question.\n\nYour reply appears in a compact speech bubble: answer in the user's language, plain text, no markdown, in at most two short sentences. Do the work before reporting it. When a result needs to be seen, open it in the user's configured browser, editor, file manager, or terminal instead of printing it.\n\nYour standing notes are at " + root.notesPath + ". Read them only when prior context matters and append only durable preferences or facts."
   readonly property int preambleMax: 8000
   readonly property int orderMax: 8000
   readonly property string preamble:
@@ -532,7 +540,7 @@ Item {
   // the rest of our state rather than in the user's config, because it is a
   // placement, not a preference.
 
-  readonly property string homeFile: stateHome + "/omarchy/omarchief/home.json"
+  readonly property string homeFile: stateHome + "/omarchy/grokchief/home.json"
   property var homes: ({})
   // A drag or travel can beat the asynchronous first read. Keep every new
   // position and the last chosen monitor until the disk state is available,
@@ -1024,7 +1032,7 @@ Item {
   readonly property int consoleWindows: consoleWindowKeys.length
   // The scratchpad is shared by Omarchy. It is our console only when an
   // Omarchy agent window is actually in it; a visible music player or other
-  // scratchpad resident must never be toggled by Omarchief's console button.
+  // scratchpad resident must never be toggled by Grok Chief's console button.
   readonly property bool consoleOpen: consoleWorkspaceOpen && consoleWindows > 0
   onConsoleWindowKeysChanged: root.probeConsoleLaunch()
   readonly property var fullscreenMonitors: {
@@ -1112,10 +1120,10 @@ Item {
     if (pluginDir === "") return []
     var p = cfgPet
     if (p === "") return []
-    var out = [home + "/.config/omarchief/pets/" + p,
+    var out = [home + "/.config/grokchief/pets/" + p,
                home + "/.config/omapets/pets/" + p,
                pluginDir + "/pets/" + p]
-    if (p !== "gritty") out.push(pluginDir + "/pets/gritty")
+    if (p !== "bloub") out.push(pluginDir + "/pets/bloub")
     return out
   }
   property int petDirIndex: 0
@@ -1157,6 +1165,9 @@ Item {
   property var spriteIdleFaces: null
   property var spriteBlink: null
   property var spriteContent: null
+  // A companion with no artwork at all: the body is computed every frame from
+  // Bloub.js, so none of the sheet machinery above applies to it.
+  property bool bloubPet: false
   // Align the visible drawing, not its transparent atlas cell, with the
   // screen edge. Qt shares this decode with the on-screen Image.
   Image {
@@ -1169,7 +1180,9 @@ Item {
   readonly property real spriteCellAspect: Model.cellAspect(
     spriteGeometry.implicitWidth, spriteGeometry.implicitHeight,
     spriteRows, spriteColumns)
-  readonly property bool stillPet: spriteFaces !== null
+  // Neither a still sprite pet nor the drawn one walks: following the focus
+  // and roaming are the creature moving on its own, and neither has legs.
+  readonly property bool stillPet: spriteFaces !== null || bloubPet
   property int spritePreferredSize: 0
   property bool spritePixelArt: false
   property string spritePetId: ""
@@ -1217,6 +1230,7 @@ Item {
     root.spriteIdleFaces = null
     root.spriteBlink = null
     root.spriteContent = null
+    root.bloubPet = false
     root.spritePreferredSize = 0
     root.spritePixelArt = false
     root.themedRevision = 0
@@ -1243,7 +1257,7 @@ Item {
   // fallback traversal into the next event turn and guard it against a pet
   // choice that changed while the failure was being delivered.
   function rejectPet(message) {
-    if (message) console.warn("omarchief:", message)
+    if (message) console.warn("grokchief:", message)
     root.spriteOk = false
     root.petResolved = false
     root.failedPetIndex = root.petDirIndex
@@ -1268,14 +1282,28 @@ Item {
     onLoaded: {
       try {
         var pet = JSON.parse(String(text() || ""))
-        var sheet = String(pet.spritesheetPath || "spritesheet.webp")
         var dir = root.petDirCandidates[root.petDirIndex]
+        // A pet may be DRAWN rather than blitted. It ships no spritesheet, so
+        // none of the atlas reading below means anything for it: the character
+        // is code, and its shape, colour and expression are settings. Only the
+        // two fields that are about placing a body on a desktop are read.
+        if (String(pet.render || "") === "bloub") {
+          root.spritePetId = dir.slice(dir.lastIndexOf("/") + 1)
+          root.spritePetDir = dir
+          root.spriteContent = pet.content && typeof pet.content === "object" ? pet.content : null
+          root.spritePreferredSize = isFinite(Number(pet.size)) && Number(pet.size) >= 32
+            && Number(pet.size) <= 240 ? Math.round(Number(pet.size)) : 0
+          root.bloubPet = true
+          root.petResolved = true
+          return
+        }
+        var sheet = String(pet.spritesheetPath || "spritesheet.webp")
         if (!Model.safeRelativePath(sheet)) throw new Error("spritesheetPath must stay inside the pet folder")
         // A pet may simply say how many rows it has; the standard version
         // number only ever meant nine or eleven.
         root.spriteRows = isFinite(Number(pet.rows)) && Number(pet.rows) > 0 && Number(pet.rows) <= 64
           ? Math.floor(Number(pet.rows)) : Model.atlasRowCount(pet.spriteVersionNumber)
-        // omarchief.json wins over the pet's own preference, so a user can
+        // grokchief.json wins over the pet's own preference, so a user can
         // dress or undress any pet without editing artwork they downloaded.
         root.petTint = Model.tintStrength(root.cfg.themeTint !== undefined ? root.cfg.themeTint : pet.themeTint, 0)
         root.spriteSleepRow = isFinite(Number(pet.sleepRow)) && Number(pet.sleepRow) >= 0
@@ -1320,7 +1348,7 @@ Item {
   // state, and a stamp file records which accent it was made for, so a
   // shell restart does not redo work that is already done.
 
-  readonly property string themedDir: stateHome + "/omarchy/omarchief/themed"
+  readonly property string themedDir: stateHome + "/omarchy/grokchief/themed"
   // One themed sheet per accent, named for it. Redrawing takes a second;
   // switching between themes the creature has already worn should not. The
   // sheet for the old accent stays on disk, so switching back is a stat and
@@ -1482,9 +1510,9 @@ Item {
     var spec = spriteThemeable || {}
     var source = String(spriteBaseSource).replace(/^file:\/\//, "").replace(/\?.*$/, "")
     try { source = decodeURIComponent(source) } catch (e) {
-      console.warn("omarchief: could not decode pet artwork path:", e)
+      console.warn("grokchief: could not decode pet artwork path:", e)
     }
-    var tool = pluginDir + "/tools/omarchief-recolor"
+    var tool = pluginDir + "/tools/grokchief-recolor"
     // One stamp per sheet, beside it: what it was drawn for and which
     // artwork it came from. A theme worn before is then a single comparison,
     // with nothing to sweep and no way to delete the sheet just written.
@@ -1929,7 +1957,7 @@ Item {
   property bool welcomed: true
   FileView {
     id: welcomeStore
-    path: root.stateHome + "/omarchy/omarchief/welcomed"
+    path: root.stateHome + "/omarchy/grokchief/welcomed"
     atomicWrites: true
     printErrors: false
     onLoaded: root.welcomed = true
@@ -1996,7 +2024,7 @@ Item {
     if (actions.length === 1) { root.dispatch(actions[0]); return }
     var argv = ["bash", "-lc",
       "for action do hyprctl dispatch \"$action\" >/dev/null || exit; done",
-      "omarchief-dispatch"]
+      "grokchief-dispatch"]
     for (var j = 0; j < actions.length; j++) argv.push(String(actions[j]))
     Quickshell.execDetached(argv)
   }
@@ -2095,7 +2123,7 @@ Item {
       "hyprctl clients -j 2>/dev/null | jq -r --arg ws \"$1\" --arg tag \"$2\" "
       + "'first(.[] | select((.class == \"org.omarchy.agent\" or .initialClass == \"org.omarchy.agent\") "
       + "and .workspace.name == $ws and any(.tags[]?; rtrimstr(\"*\") == $tag)) | .address) // empty'",
-      "omarchief-console-verify", "special:" + root.consoleLaunchWorkspace,
+      "grokchief-console-verify", "special:" + root.consoleLaunchWorkspace,
       root.consoleLaunchTag]
     stdout: StdioCollector {
       waitForEnd: true
@@ -2162,7 +2190,7 @@ Item {
     var baseline = ({})
     for (var i = 0; i < keys.length; i++) baseline[keys[i]] = true
     root.consoleLaunchWindowBaseline = baseline
-    root.consoleLaunchTag = "omarchief-launch-" + Date.now().toString(36)
+    root.consoleLaunchTag = "grokchief-launch-" + Date.now().toString(36)
       + "-" + Math.floor(Math.random() * 0x1000000).toString(36)
     root.consoleLaunchVerifiedKey = ""
     root.consoleLaunchCandidate = ""
@@ -2290,9 +2318,9 @@ Item {
 
   // ------------------------------------------------------------ IPC
   //
-  //   omarchy-shell omarchief ask | summon | toggle | show | hide | status
-  //   omarchy-shell omarchief order "open spotify on DP-2"
-  //   omarchy-shell omarchief travel DP-2
+  //   omarchy-shell grokchief ask | summon | toggle | show | hide | status
+  //   omarchy-shell grokchief order "open spotify on DP-2"
+  //   omarchy-shell grokchief travel DP-2
 
   property bool shown: true
   // Slid mostly off its edge, out of the way. A click brings it back.
@@ -2307,7 +2335,7 @@ Item {
   // The chief's inner state, published as a small JSON file for scripts and
   // diagnostics. It is a read-only mirror; the bar binds to this service
   // directly and never waits for a file round-trip.
-  readonly property string statusDir: stateHome + "/omarchy/omarchief"
+  readonly property string statusDir: stateHome + "/omarchy/grokchief"
 
   function statusJson() {
     return JSON.stringify({
@@ -2327,7 +2355,10 @@ Item {
       consoleOpen: consoleOpen,
       sessionActive: sessionId !== "",
       pet: spritePetId !== "" ? spritePetId : cfgPet,
-      bodyReady: spriteOk,
+      shape: bloubPet ? cfgShape : "",
+      color: bloubPet ? cfgColor : "",
+      expression: bloubPet ? cfgExpression : "",
+      bodyReady: spriteOk || bloubPet,
       themed: themedUsable,
       activity: activeChief && activeChief.activity
         ? String(activeChief.activity.name || "").slice(0, 64) : "",
@@ -2403,6 +2434,22 @@ Item {
 
   property string settingError: ""
 
+  // One rule for the drawn companion's three settings: report what is worn,
+  // or change it. The choice is kept even while another companion is on
+  // stage — it is a preference about a body, not about the desktop — so it is
+  // accepted then, with a word about when it will show.
+  function wearChoice(name, value) {
+    var list = name === "shape" ? Bloub.SHAPES
+      : name === "color" ? Bloub.COLORS : Bloub.EXPRESSIONS
+    var current = name === "shape" ? root.cfgShape
+      : name === "color" ? root.cfgColor : root.cfgExpression
+    var want = String(value || "")
+    if (want === "") return current
+    if (!root.setConfig(name, want)) return root.settingError + ": " + Bloub.idsOf(list)
+    return root.bloubPet ? "wearing " + want
+      : want + ", for when the drawn companion is worn"
+  }
+
   function normalizedSetting(key, value) {
     var name = String(key || "")
     if (!root.allowedSetting(name)) return { ok: false, error: "unknown setting: " + name }
@@ -2426,6 +2473,13 @@ Item {
         if (root.installedPets[p].id === pet) foundPet = true
       return foundPet ? { ok: true, value: pet }
         : { ok: false, error: "pet is not installed" }
+    }
+    if (name === "shape" || name === "color" || name === "expression") {
+      var choice = String(value || "")
+      var known = name === "shape" ? Bloub.isShapeId(choice)
+        : name === "color" ? Bloub.isColorId(choice) : Bloub.isExpressionId(choice)
+      return known ? { ok: true, value: choice }
+        : { ok: false, error: "no such " + name }
     }
     if (name === "screen") {
       var screen = String(value || "")
@@ -2564,7 +2618,7 @@ Item {
   }
 
   IpcHandler {
-    target: "omarchief"
+    target: "grokchief"
 
     function ask(): void { root.askOn("") }
     function order(text: string): string { root.shown = true; return root.runOrder(text) }
@@ -2615,6 +2669,13 @@ Item {
       if (id === "") return root.cfgPet
       return root.setConfig("pet", id) ? "wearing " + id : root.settingError
     }
+
+    // The drawn companion's three choices. Reached by name from memory more
+    // often than from the panel, so a value that is not recognised answers
+    // with the ones that are rather than with a bare refusal.
+    function shape(id: string): string { return root.wearChoice("shape", id) }
+    function color(id: string): string { return root.wearChoice("color", id) }
+    function expression(id: string): string { return root.wearChoice("expression", id) }
 
     function speak(on: string): string {
       var want = Model.flagValue(on, root.cfgTalk)
@@ -2761,7 +2822,7 @@ Item {
       exclusionMode: ExclusionMode.Normal
       exclusiveZone: 0
       mask: chiefLoader.item ? chiefLoader.item.inputRegion : null
-      WlrLayershell.namespace: "omarchief"
+      WlrLayershell.namespace: "grokchief"
 
       // Prime with Exclusive on every open, then settle on OnDemand — the
       // KeyboardPanel recipe. Hyprland focuses OnDemand when a surface
@@ -2805,6 +2866,10 @@ Item {
           petSize: root.petSize
           fullScreenHeight: modelData.height
           pixelArt: root.spritePixelArt
+          bloub: root.bloubPet
+          bloubShape: root.cfgShape
+          bloubColor: root.cfgColor
+          bloubExpression: root.cfgExpression
           mood: root.mood
           energy: root.energy
           activityRate: root.cfgActivity

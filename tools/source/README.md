@@ -6,15 +6,27 @@ rebuilt, corrected, or drawn over by somebody who is not me.
 **They are not in this clone.** Nothing loads them at runtime, so carrying
 them in every installation would add weight without changing the creature
 on screen. They are attached to each release instead, as
-`omarchief-artwork-sources.tar.gz`. The archive includes its own licence and
+`grokchief-artwork-sources.tar.gz`. The archive includes its own licence and
 provenance notice; download it at the version in `manifest.json` and extract it
 at the repository root:
 
 ```bash
 version=$(jq -r .version manifest.json)
-gh release download "v$version" --repo daventhedude/omarchief \
+gh release download "v$version" --repo moerdowo/grok-chief \
+  --pattern 'grokchief-artwork-sources.tar.gz' --output - | tar xz
+```
+
+That asset has to be built and attached first — `tools/build-source-archive`
+makes it — and no Grok Chief release carries one yet. Until then the renders
+are on Omarchief's releases, which is where this artwork comes from:
+
+```bash
+gh release download --repo daventhedude/omarchief \
   --pattern 'omarchief-artwork-sources.tar.gz' --output - | tar xz
 ```
+
+The drawn companion has no renders and appears in neither archive: it has no
+artwork to rebuild.
 
 The table is what is in that archive.
 
@@ -35,7 +47,7 @@ local renders out, makes the notice impossible to forget, and produces the
 same bytes from the same audited inputs and release commit:
 
 ```bash
-asset="${TMPDIR:-/tmp}/omarchief-artwork-sources.tar.gz"
+asset="${TMPDIR:-/tmp}/grokchief-artwork-sources.tar.gz"
 tools/build-source-archive "$asset"
 tools/build-source-archive --check "$asset"
 tar -tzf "$asset"

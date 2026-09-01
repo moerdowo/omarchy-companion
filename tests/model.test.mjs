@@ -481,12 +481,12 @@ test("an order cannot break out of the shell it is quoted into", () => {
   // one — a single argument to bash -lc, with no second quoting layer —
   // and must come back out as the literal text that went in.
   const attacks = [
-    "; rm -rf /tmp/omarchief-escape",
-    "$(touch /tmp/omarchief-escape)",
-    "`touch /tmp/omarchief-escape`",
-    "'; touch /tmp/omarchief-escape; '",
-    "&& touch /tmp/omarchief-escape",
-    "| touch /tmp/omarchief-escape",
+    "; rm -rf /tmp/grokchief-escape",
+    "$(touch /tmp/grokchief-escape)",
+    "`touch /tmp/grokchief-escape`",
+    "'; touch /tmp/grokchief-escape; '",
+    "&& touch /tmp/grokchief-escape",
+    "| touch /tmp/grokchief-escape",
     "a'b",
     "$HOME && echo x",
     "line one\nline two",
@@ -496,7 +496,7 @@ test("an order cannot break out of the shell it is quoted into", () => {
     const out = execFileSync("bash", ["-lc", "printf %s " + M.shellQuote(attack)], { encoding: "utf8" })
     assert.equal(out, attack, `escaped: ${JSON.stringify(attack)}`)
   }
-  assert.equal(existsSync("/tmp/omarchief-escape"), false, "nothing was executed")
+  assert.equal(existsSync("/tmp/grokchief-escape"), false, "nothing was executed")
   assert.equal(M.shellQuote(undefined), "''")
 })
 
@@ -794,7 +794,7 @@ test("the bubble says what the agent is doing, in its words where it has them", 
   assert.deepEqual(M.parseTalkLine("claude", claudeTool), { kind: "doing", text: "Read notes.txt" })
   // Without a description of its own, one is built from what matters.
   const claudeRead = JSON.stringify({ type: "assistant", message: { content: [
-    { type: "tool_use", name: "Read", input: { file_path: "/home/x/projects/omarchief/keystone/Service.qml" } }] } })
+    { type: "tool_use", name: "Read", input: { file_path: "/home/x/projects/grokchief/keystone/Service.qml" } }] } })
   assert.deepEqual(M.parseTalkLine("claude", claudeRead), { kind: "doing", text: "Reading Service.qml" })
   // Words beat tools: a message that says something is text, not doing.
   const claudeBoth = JSON.stringify({ type: "assistant", message: { content: [
@@ -810,7 +810,7 @@ test("the bubble says what the agent is doing, in its words where it has them", 
   // top-level tool_use records, not the older top-level `tool` spelling.
   const opencodeRead = JSON.stringify({ type: "tool_use", sessionID: "ses_1", part: {
     type: "tool", tool: "read", state: { status: "completed",
-      input: { file_path: "/home/x/projects/omarchief/keystone/Service.qml" } } } })
+      input: { file_path: "/home/x/projects/grokchief/keystone/Service.qml" } } } })
   assert.deepEqual(M.parseTalkLine("opencode", opencodeRead),
     { kind: "doing", text: "Reading Service.qml" })
 
@@ -868,18 +868,24 @@ test("the state directory spelling stays stable", () => {
   const root = new URL("..", import.meta.url).pathname
   const files = ["README.md", "CHANGELOG.md", "docs/pets.md", "docs/development.md",
                  "tools/perform-check", "tools/coldstart-check"]
-  const known = new Set(["omarchy", "omarchief"])
+  // Two families of name appear in this repository and both get mistyped the
+  // same way. `omarchy` is the desktop and `omarchief` the project this was
+  // forked from, which the documentation cites by name; `grokchief` is ours.
+  // Anything else beginning either way is a typo, and one that reads as
+  // correct until a path built from it silently misses.
+  const known = new Set(["omarchy", "omarchief", "grokchief"])
   for (const name of files) {
     let text
     try { text = readFileSync(root + name, "utf8") } catch { continue }
-    const stray = [...new Set(text.match(/omar[a-z]+/g) || [])].filter(w => !known.has(w))
+    const stray = [...new Set(text.match(/omar[a-z]+|grok[a-z]+/g) || [])]
+      .filter(w => !known.has(w))
     assert.deepEqual(stray, [], name + " has a mangled name: " + stray)
   }
   const performance = readFileSync(root + "tools/perform-check", "utf8")
   assert.match(performance, /XDG_STATE_HOME/,
     "perform-check must honor the configured state home")
   assert.match(performance,
-    /os\.path\.join\(state_home,\s*"omarchy",\s*"omarchief",\s*"status\.json"\)/,
+    /os\.path\.join\(state_home,\s*"omarchy",\s*"grokchief",\s*"status\.json"\)/,
     "perform-check must read the real status file")
 })
 
@@ -913,7 +919,7 @@ async function closeOf(child, timeoutMs = 6000) {
 }
 
 test("stopping an agent turn reaps even TERM-resistant descendants", async () => {
-  const work = mkdtempSync(join(tmpdir(), "omarchief-runner-"))
+  const work = mkdtempSync(join(tmpdir(), "grokchief-runner-"))
   const pidPath = join(work, "agent.pid")
   let childPid = 0
   let runner
@@ -944,7 +950,7 @@ test("stopping an agent turn reaps even TERM-resistant descendants", async () =>
 })
 
 test("plugin destruction reaps a turn after its direct wrapper is SIGKILLed", async () => {
-  const work = mkdtempSync(join(tmpdir(), "omarchief-destructor-"))
+  const work = mkdtempSync(join(tmpdir(), "grokchief-destructor-"))
   const pidPath = join(work, "agent.pid")
   let childPid = 0
   let runner

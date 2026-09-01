@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Regenerates keystone/BloubFit.js from bloub's own eye-fit solver.
+#
+# The offsets are not ours to invent: they come from bloub's `src/bot/eyefit.ts`,
+# which solves, once, where a face has to sit so that neither capsule crosses the
+# outline of a non-circular body. Running the upstream solver instead of porting
+# it keeps this plugin honest — the table is whatever that code says it is, for
+# the exact revision named below.
+#
+# Usage: tools/build-eyefit [path-to-bloub-checkout]
+#
+# Needs network on first run (esbuild via npx) and Node 18+.
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")/.." && pwd)"
+src="${1:-}"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+if [[ -z "$src" ]]; then
+  src="$work/bloub"
+  git clone --depth 1 https://github.com/jeremy-prt/bloub "$src" >/dev/null 2>&1
+fi
+
+if [[ ! -f "$src/src/bot/eyefit.ts" ]]; then
+  echo "not a bloub checkout: $src" >&2
+  exit 1
+fi
+
+rev="$(git -C "$src" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+cat > "$work/dump.ts" <<'EOF'
+import { decalageDesYeux } from './bloub/src/bot/eyefit'
+import { SHAPES } from './bloub/src/bot/skins'
+import { EXPRESSIONS } from './bloub/src/bot/expressions'
+import { STATES } from './bloub/src/bot/states'
+
+const out: Record<string, Record<string, { x: number; y: number }>> = {}
+for (const shape of SHAPES) {
+  const per: Record<string, { x: number; y: number }> = {}
+  for (const def of STATES) {
+    if (!def.baseBody) continue
+    const exprs: (string | null)[] = def.baseFace
+      ? [null, ...EXPRESSIONS.map((e) => e.id)]
+      : [null]
+    for (const e of exprs) {
+      const d = decalageDesYeux(shape.radii, def.id, e)
+      // Six decimals of a ball radius is a hundredth of a pixel on the largest
+      // creature Omarchief will draw; the rest is noise from the solver.
+      per[`${def.id}|${e ?? ''}`] = {
+        x: Math.round(d.x * 1e6) / 1e6,
+        y: Math.round(d.y * 1e6) / 1e6
+      }
+    }
+  }
+  out[shape.id] = per
+}
+console.log(JSON.stringify(out, null, 0))
+EOF
+
+[[ "$src" != "$work/bloub" ]] && ln -sfn "$(cd "$src" && pwd)" "$work/bloub"
+
+npx --yes esbuild@0.24.0 "$work/dump.ts" --bundle --format=esm --platform=node \
+  --outfile="$work/dump.mjs" --log-level=warning
+node "$work/dump.mjs" > "$work/eyefit.json"
+
+python3 - "$work/eyefit.json" "$rev" > "$here/keystone/BloubFit.js" <<'EOF'
+import json, sys
+
+table = json.load(open(sys.argv[1]))
+rev = sys.argv[2]
+
+print('''// Where to seat the face on each body shape. GENERATED — see tools/build-eyefit.
+//
+// The eyes live on a sphere, and the engine re-seats them pro rata to the real
+// radius in their direction. That places their CENTRE correctly, but an eye has
+// a size: the clearance left in front of the edge is scaled by the same factor,
+// so a silhouette that is narrow in that direction pushes the capsule against
+// the outline until the body opens outwards around it. That showed on capsule,
+// triangle, cloud and droplet.
+//
+// bloub solves this ONCE, at load, and the result is a table. That choice is far
+// more of the fix than the geometry behind it: solved per frame, the correction
+// reacts to the gaze drift, the pointer, and an expression mid-morph, and every
+// version written that way had a visible motion artefact. Interpolating between
+// two constants is monotone by construction.
+//
+// So the table is imported rather than recomputed, and taken verbatim from
+// bloub\\'s own solver at revision %s. To refresh it, run tools/build-eyefit.
+
+.pragma library
+
+var ZERO = { x: 0, y: 0 }
+
+var TABLE = %s
+
+/**
+ * The offset for a shape on a state and an expression, in ball-radius units.
+ *
+ * Zero as soon as the shape is not in the catalogue, which covers both null and
+ * the circle: on a circle the two profiles are the same, so the clearance is
+ * already the one required. A state with no resting face has one entry whatever
+ * the expression, hence the second lookup.
+ *
+ * Entries are handed back BY REFERENCE, never copied: the engine shortcuts a
+ * morph whose two ends are the same object, and a fresh object per call would
+ * quietly defeat that on every frame.
+ */
+function offset(shape, state, expression) {
+  // Own properties only. These three arguments come from shell.json by way of
+  // the engine, and `constructor` is inherited by every plain object.
+  var own = function(map, key) {
+    return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null
+  }
+  var per = own(TABLE, String(shape))
+  if (!per) return ZERO
+  var key = String(state) + "|"
+  return own(per, key + String(expression === null || expression === undefined ? "" : expression))
+    || own(per, key) || ZERO
+}''' % (rev, json.dumps(table, separators=(',', ':'))))
+EOF
+
+echo "wrote keystone/BloubFit.js from bloub@$rev"

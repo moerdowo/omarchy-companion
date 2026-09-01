@@ -84,7 +84,7 @@ before(() => {
   assert.match(output, /^Version: ImageMagick 7\./m,
     "the atlas contract requires ImageMagick 7's magick command")
 
-  work = mkdtempSync(join(tmpdir(), "omarchief-atlas-test-"))
+  work = mkdtempSync(join(tmpdir(), "grokchief-atlas-test-"))
   walkPath = join(work, "walk.png")
   idlePath = join(work, "idle.png")
   activitiesPath = join(work, "activities.png")

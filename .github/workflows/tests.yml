@@ -114,7 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           for f in README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md \
-                   preview.png docs/settings.png tools/source/NOTICE; do
+                   preview.png docs/expressions.png tools/source/NOTICE; do
             [[ -s $f ]] || { echo "missing or empty: $f" >&2; exit 1; }
           done
           version=$(jq -r .version manifest.json)
@@ -123,16 +123,26 @@ jobs:
             || { echo "CHANGELOG.md has no dated entry for $version" >&2; exit 1; }
           ! grep -Eiq "^## ${version_pattern} — unreleased$" CHANGELOG.md \
             || { echo "CHANGELOG.md still marks $version unreleased" >&2; exit 1; }
-          grep -Fqx 'omarchy plugin add https://github.com/daventhedude/omarchief.git --enable' README.md
-          grep -Fqx 'omarchy plugin remove io.github.daventhedude.omarchief' README.md
+          grep -Fqx 'omarchy plugin add https://github.com/moerdowo/grok-chief.git --enable' README.md
+          grep -Fqx 'omarchy plugin remove io.github.moerdowo.grokchief' README.md
           ! grep -Eq 'omarchy plugin (add|remove).*--yes' README.md \
             || { echo "README.md bypasses Omarchy's install/remove confirmation" >&2; exit 1; }
       - name: release payload is clean
         run: |
           set -euo pipefail
-          bad=$(git ls-files | grep -E '(^|/)(__pycache__/|.*\.py[co]$|tools/omarchief-hooks?$|tools/source/.*\.png$|omarchief-artwork-sources\.tar\.gz$)' || true)
+          bad=$(git ls-files | grep -E '(^|/)(__pycache__/|.*\.py[co]$|tools/grokchief-hooks?$|tools/source/.*\.png$|grokchief-artwork-sources\.tar\.gz$)' || true)
           [[ -z $bad ]] || { echo "files excluded from the release are tracked:" >&2; echo "$bad" >&2; exit 1; }
           for pet in pets/*/pet.json; do
+            # A pet is either drawn or blitted. A drawn one names a renderer
+            # this plugin has to actually ship, and no sheet at all; a blitted
+            # one names a sheet that has to be there and a grid to cut it on.
+            if jq -e 'has("render")' "$pet" > /dev/null; then
+              jq -e '.render == "bloub" and (has("spritesheetPath") | not)' "$pet" > /dev/null \
+                || { echo "$pet is drawn but malformed" >&2; exit 1; }
+              [[ -s keystone/Bloub.js && -s keystone/BloubFit.js && -s keystone/BloubBody.qml ]] \
+                || { echo "$pet names a renderer this plugin does not ship" >&2; exit 1; }
+              continue
+            fi
             jq -e '(.spritesheetPath | type) == "string"
               and (.rows | type) == "number" and .rows >= 1
               and (.columns == null or ((.columns | type) == "number" and .columns >= 1))' "$pet" > /dev/null
@@ -144,8 +154,8 @@ jobs:
           set -euo pipefail
           [[ -x tools/build-source-archive ]] \
             || { echo "tools/build-source-archive is not executable" >&2; exit 1; }
-          bash -n tools/coldstart-check tools/perform-check tools/omarchief-recolor \
-            tools/build-source-archive
+          bash -n tools/coldstart-check tools/perform-check tools/grokchief-recolor \
+            tools/build-source-archive tools/build-eyefit tools/verify-bloub-port
           python3 - <<'PY'
           import ast
           from pathlib import Path

@@ -1,6 +1,7 @@
-Omarchief artwork source archive
+Grok Chief artwork source archive
 
-The gritty-*.png source renders are original work by Daven Niemann,
+The gritty-*.png source renders are original work by Daven Niemann for
+Omarchief, the project Grok Chief is forked from,
 Copyright (c) 2026 Daven Niemann.
 
 quattro.png is the high-resolution cutout used for the Quattro sprite. It is
@@ -12,7 +13,7 @@ https://github.com/basecamp/omarchy/blob/v4.0.0/themes/tokyo-night/backgrounds/1
 
 The original renders, the adaptation, and the upstream material are
 distributed under the following MIT terms. This NOTICE must remain in every
-copy of omarchief-artwork-sources.tar.gz.
+copy of grokchief-artwork-sources.tar.gz.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -34,4 +35,4 @@ SOFTWARE.
 
 Audi, quattro, Castrol, Michelin, and all other third-party names, logos, and
 marks remain the property of their respective owners. Their appearance in the
-upstream artwork does not imply endorsement of Omarchief.
+upstream artwork does not imply endorsement of Grok Chief.

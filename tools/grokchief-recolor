@@ -19,12 +19,12 @@
 # a gamma, so hue and saturation are untouched, black stays black, white
 # stays white, and the artist's shading keeps its order — nothing clips.
 #
-# Usage: omarchief-recolor <source-sheet> <out.webp> <#rrggbb> [hueMin hueMax satMin] [#background]
+# Usage: grokchief-recolor <source-sheet> <out.webp> <#rrggbb> [hueMin hueMax satMin] [#background]
 set -euo pipefail
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then
   cat <<USAGE
-Usage: omarchief-recolor <sheet> <out.webp> <#accent> [hueMin hueMax satMin] [#background]
+Usage: grokchief-recolor <sheet> <out.webp> <#accent> [hueMin hueMax satMin] [#background]
 
 Dress a pet's spritesheet in a theme colour. Only the hues inside the
 window count as its skin; everything else is left exactly as drawn.
@@ -32,13 +32,13 @@ window count as its skin; everything else is left exactly as drawn.
 Given the desktop's background as well, the finished sheet is then fitted
 in lightness toward the higher-contrast endpoint until the creature's body
 clears the contrast a graphic owes its surroundings.
-Set OMARCHIEF_CONTRAST_FLOOR to override the ratio it aims for.
+Set GROKCHIEF_CONTRAST_FLOOR to override the ratio it aims for.
 USAGE
   exit 0
 fi
 
 if (( $# < 3 || $# > 7 )); then
-  echo "omarchief-recolor: expected 3–7 arguments; try --help" >&2
+  echo "grokchief-recolor: expected 3–7 arguments; try --help" >&2
   exit 2
 fi
 
@@ -56,47 +56,47 @@ number_in_range() {
 }
 
 [[ $accent =~ ^#[0-9A-Fa-f]{6}$ ]] || {
-  echo "omarchief-recolor: accent must be #rrggbb" >&2
+  echo "grokchief-recolor: accent must be #rrggbb" >&2
   exit 2
 }
 if [[ -n $background && ! $background =~ ^#[0-9A-Fa-f]{6}$ ]]; then
-  echo "omarchief-recolor: background must be #rrggbb" >&2
+  echo "grokchief-recolor: background must be #rrggbb" >&2
   exit 2
 fi
 number_in_range "$hue_min" 0 360 || {
-  echo "omarchief-recolor: hueMin must be between 0 and 360" >&2
+  echo "grokchief-recolor: hueMin must be between 0 and 360" >&2
   exit 2
 }
 number_in_range "$hue_max" 0 360 || {
-  echo "omarchief-recolor: hueMax must be between 0 and 360" >&2
+  echo "grokchief-recolor: hueMax must be between 0 and 360" >&2
   exit 2
 }
 awk -v lo="$hue_min" -v hi="$hue_max" 'BEGIN { exit !(lo <= hi) }' || {
-  echo "omarchief-recolor: hueMin must not exceed hueMax" >&2
+  echo "grokchief-recolor: hueMin must not exceed hueMax" >&2
   exit 2
 }
 number_in_range "$sat_min" 0 100 || {
-  echo "omarchief-recolor: satMin must be between 0 and 100" >&2
+  echo "grokchief-recolor: satMin must be between 0 and 100" >&2
   exit 2
 }
 
 # WCAG asks 3:1 of a graphic. That assumes the graphic has a shape and a
 # colour of its own to be told apart by; where it does not, more is needed —
 # see the floor worked out below.
-floor=${OMARCHIEF_CONTRAST_FLOOR:-}
+floor=${GROKCHIEF_CONTRAST_FLOOR:-}
 if [[ -n $floor ]]; then
   if ! [[ $floor =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] \
       || ! awk -v f="$floor" 'BEGIN { exit !(f > 1 && f <= 21) }'; then
-    echo "omarchief-recolor: OMARCHIEF_CONTRAST_FLOOR must be greater than 1 and at most 21" >&2
+    echo "grokchief-recolor: GROKCHIEF_CONTRAST_FLOOR must be greater than 1 and at most 21" >&2
     exit 2
   fi
 fi
 
-command -v magick >/dev/null || { echo "omarchief-recolor: ImageMagick (magick) is required" >&2; exit 1; }
-[[ -f $src ]] || { echo "omarchief-recolor: no such sheet: $src" >&2; exit 1; }
-[[ -d $(dirname -- "$out") ]] || { echo "omarchief-recolor: output directory does not exist: $(dirname -- "$out")" >&2; exit 1; }
+command -v magick >/dev/null || { echo "grokchief-recolor: ImageMagick (magick) is required" >&2; exit 1; }
+[[ -f $src ]] || { echo "grokchief-recolor: no such sheet: $src" >&2; exit 1; }
+[[ -d $(dirname -- "$out") ]] || { echo "grokchief-recolor: output directory does not exist: $(dirname -- "$out")" >&2; exit 1; }
 if [[ -z $out || $out == */ || -d $out ]]; then
-  echo "omarchief-recolor: output must name a file, not a directory: $out" >&2
+  echo "grokchief-recolor: output must name a file, not a directory: $out" >&2
   exit 2
 fi
 
@@ -314,7 +314,7 @@ if [[ -n $background ]]; then
 
     got=$(ratio_of "$(luminance $(creature_colour "$step" "$weight"))")
     if awk -v g="$got" -v f="$floor" 'BEGIN { exit !(g < f) }'; then
-      echo "omarchief-recolor: cannot reach contrast floor $floor against $background" >&2
+      echo "grokchief-recolor: cannot reach contrast floor $floor against $background" >&2
       exit 1
     fi
 

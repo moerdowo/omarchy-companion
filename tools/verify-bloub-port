@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# Checks keystone/Bloub.js against the engine it was ported from.
+#
+# The port claims that only the OUTPUT changed — points and matrices for a QML
+# Canvas where bloub emits SVG path strings for a browser — and that every
+# constant, easing and schedule came over unaltered. That is a strong claim
+# about numbers nobody can eyeball, so it is checked rather than asserted:
+# both engines are sampled over every state, shape, expression and a set of
+# awkward dates, and the port's output is re-encoded into the exact strings the
+# original produces and compared character for character.
+#
+# It is not part of `node --test`: it needs the network, to fetch bloub and
+# esbuild. It belongs with tools/coldstart-check as a release check.
+#
+# Usage: tools/verify-bloub-port [path-to-bloub-checkout]
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")/.." && pwd)"
+src="${1:-}"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+if [[ -z "$src" ]]; then
+  src="$work/bloub"
+  git clone --depth 1 https://github.com/jeremy-prt/bloub "$src" >/dev/null 2>&1
+fi
+[[ -f "$src/src/bot/engine.ts" ]] || { echo "not a bloub checkout: $src" >&2; exit 1; }
+[[ "$src" != "$work/bloub" ]] && ln -sfn "$(cd "$src" && pwd)" "$work/bloub"
+
+echo "comparing against bloub@$(git -C "$src" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+cat > "$work/upstream.ts" <<'EOF'
+export { BotEngine } from './bloub/src/bot/engine'
+export { SHAPES } from './bloub/src/bot/skins'
+export { EXPRESSIONS } from './bloub/src/bot/expressions'
+export { STATES } from './bloub/src/bot/states'
+export { closedPath } from './bloub/src/bot/shape'
+EOF
+
+npx --yes esbuild@0.24.0 "$work/upstream.ts" --bundle --format=esm --platform=node \
+  --outfile="$work/upstream.mjs" --log-level=warning
+
+cat > "$work/compare.mjs" <<'EOF'
+import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
+import * as up from './upstream.mjs'
+
+const keystone = process.argv[2]
+
+// `.pragma library` and `.import` are QML directives, not JavaScript. Strip
+// them and wire the one import by hand; nothing else about the file changes.
+function loadQmlJs(path, extra = {}) {
+  const source = readFileSync(path, 'utf8')
+    .split('\n')
+    .map((line) => (/^\s*\.(pragma|import)\b/.test(line) ? '' : line))
+    .join('\n')
+  const context = { Math, JSON, isFinite, parseInt, String, Number, Array, Object, ...extra }
+  runInNewContext(source, context, { filename: path })
+  return context
+}
+
+const Fit = loadQmlJs(`${keystone}/BloubFit.js`)
+const B = loadQmlJs(`${keystone}/Bloub.js`, { BloubFit: { offset: Fit.offset } })
+
+// The original rounds to two decimals on its way into a path string; that is
+// the only place the two representations can be compared exactly.
+const r2 = (v) => Math.round(v * 100) / 100
+const R = 100
+
+const failures = []
+let checks = 0
+let worst = 0
+let worstWhat = ''
+
+const near = (what, mine, theirs) => {
+  checks++
+  const delta = Math.abs(mine - theirs)
+  if (delta > worst) { worst = delta; worstWhat = what }
+  if (!(delta <= 1e-9)) failures.push(`${what}: ${mine} vs ${theirs}`)
+}
+
+const exact = (what, mine, theirs) => {
+  checks++
+  if (mine !== theirs) failures.push(`${what}\n  port     ${String(mine).slice(0, 110)}\n  upstream ${String(theirs).slice(0, 110)}`)
+}
+
+const eyeMatrix = (eye) =>
+  `matrix(${r2(eye.m[0])},${r2(eye.m[1])},${r2(eye.m[2])},${r2(eye.m[3])},${r2(eye.m[4])},${r2(eye.m[5])})`
+
+const arcPath = (runs) =>
+  runs.map((run) => run.map((p, i) => `${i === 0 ? 'M' : 'L'}${r2(p.x)} ${r2(p.y)}`).join('')).join('')
+
+function compare(tag, mine, theirs) {
+  exact(`${tag} body`, up.closedPath(mine.bodyPts), theirs.bodyPath)
+  near(`${tag} bodyAlpha`, mine.bodyAlpha, theirs.bodyAlpha)
+  exact(`${tag} eye count`, mine.eyes.length, theirs.eyes.length)
+  for (let i = 0; i < Math.min(mine.eyes.length, theirs.eyes.length); i++) {
+    exact(`${tag} eye${i}`, eyeMatrix(mine.eyes[i]), theirs.eyes[i].matrix)
+    near(`${tag} eye${i} alpha`, mine.eyes[i].alpha, theirs.eyes[i].alpha)
+  }
+  exact(`${tag} dot count`, mine.dots.length, theirs.dots.length)
+  for (let i = 0; i < Math.min(mine.dots.length, theirs.dots.length); i++) {
+    for (const key of ['x', 'y', 'r', 'opacity']) {
+      near(`${tag} dot${i}.${key}`, mine.dots[i][key], theirs.dots[i][key])
+    }
+  }
+  exact(`${tag} arc count`, mine.arcs.length, theirs.arcs.length)
+  for (let i = 0; i < Math.min(mine.arcs.length, theirs.arcs.length); i++) {
+    exact(`${tag} arc${i} front`, arcPath(mine.arcs[i].front), theirs.arcs[i].front)
+    exact(`${tag} arc${i} back`, arcPath(mine.arcs[i].back), theirs.arcs[i].back)
+    near(`${tag} arc${i} width`, mine.arcs[i].width, theirs.arcs[i].width)
+    near(`${tag} arc${i} opacity`, mine.arcs[i].opacity, theirs.arcs[i].opacity)
+    exact(`${tag} arc${i} stops`, mine.arcs[i].grad.stops.join(), theirs.arcs[i].grad.stops.join())
+  }
+  exact(`${tag} notif`, !!mine.notif, !!theirs.notif)
+  if (mine.notif && theirs.notif) {
+    for (const key of ['x', 'y', 'r']) near(`${tag} notif.${key}`, mine.notif[key], theirs.notif[key])
+    near(`${tag} notch.r`, mine.notch.r, theirs.notch.r)
+  }
+}
+
+const radiiOf = (id) => (id ? up.SHAPES.find((s) => s.id === id).radii : null)
+const exprOf = (id) => (id ? up.EXPRESSIONS.find((e) => e.id === id) : null)
+const pair = (state, shape, expression) => [
+  B.createEngine(R, state, shape, expression),
+  new up.BotEngine(R, state, radiiOf(shape), exprOf(expression))
+]
+
+// Every state, against no shape, every shape, and expressions chosen to reach
+// each of the four levers the face has: gaze, split, size and mirrored lean.
+const dates = [0, 0.07, 0.31, 0.62, 1.13, 1.71, 2.29, 3.02]
+for (const state of up.STATES) {
+  for (const shape of [null, ...up.SHAPES.map((s) => s.id)]) {
+    for (const expression of [null, 'neutre', 'colere', 'somnolent', 'confus']) {
+      const [mine, theirs] = pair(state.id, shape, expression)
+      for (const t of dates) {
+        compare(`${state.id}/${shape}/${expression}/t=${t}`, mine.sample(t), theirs.sample(t))
+      }
+    }
+  }
+}
+
+// Chained state changes, which is where the frozen-departure rule lives.
+for (const chain of [['idle', 'wide', 'idle'], ['idle', 'alert', 'burst'], ['orbit', 'comet', 'idle']]) {
+  const [mine, theirs] = pair(chain[0], 'goutte', 'confus')
+  mine.setState(chain[1], 0.5); theirs.setState(chain[1], 0.5)
+  mine.setState(chain[2], 0.6); theirs.setState(chain[2], 0.6)
+  for (const t of [0.5, 0.55, 0.62, 0.8, 1.4]) {
+    compare(`${chain.join('->')}/t=${t}`, mine.sample(t), theirs.sample(t))
+  }
+}
+
+// Overlapping shape morph, expression morph and cursor tracking.
+{
+  const [mine, theirs] = pair('idle', 'cercle', 'neutre')
+  mine.setShape('capsule', 0.2); theirs.setShape(radiiOf('capsule'), 0.2)
+  mine.setExpression('effraye', 0.3); theirs.setExpression(exprOf('effraye'), 0.3)
+  const look = { yaw: 40, pitch: -12, mix: 0.8, spin: 360, wander: 0.2 }
+  mine.setLook(look, 0.4); theirs.setLook(look, 0.4)
+  for (const t of [0.2, 0.35, 0.45, 0.6, 0.9, 1.5]) {
+    compare(`morph/t=${t}`, mine.sample(t), theirs.sample(t))
+  }
+}
+
+console.log(`${checks} checks`)
+console.log(`largest numeric difference: ${worst} (${worstWhat})`)
+if (failures.length) {
+  console.log(`\n${failures.length} DIFFERENCES:`)
+  for (const line of failures.slice(0, 20)) console.log('  ' + line)
+  process.exit(1)
+}
+console.log('the port matches upstream')
+EOF
+
+node "$work/compare.mjs" "$here/keystone"

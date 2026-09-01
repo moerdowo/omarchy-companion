@@ -9,7 +9,8 @@ Usage: tools/coldstart-check [plugin-folder]
 
 Install the plugin into a temporary HOME/XDG environment, enable its real bar
 entry, and load it in a fresh Quickshell process. Exits non-zero unless the
-service, bar widget, and bundled Gritty spritesheet all load without warnings.
+service, the bar widget, the drawn default companion, and the bundled Gritty
+spritesheet all load without warnings.
 USAGE
   exit 0
 fi
@@ -199,23 +200,43 @@ ShellRoot {
     onTriggered: {
       var service = serviceLoader.item
       if (!service || !widgetLoader.item) return
-      if (!("spriteOk" in service) || !("spritePetId" in service)) {
+      if (!("spriteOk" in service) || !("spritePetId" in service)
+          || !("bloubPet" in service)) {
         root.fail("service does not expose pet readiness")
         return
       }
-      if (!service.spriteOk || service.spritePetId !== "gritty" || bundledSprite.status !== Image.Ready) return
-      var source = String(service.spriteBaseSource || "")
-      if (source.indexOf("$install_dir/pets/gritty/") === -1) {
-        root.fail("Gritty came from outside the isolated plugin: " + source)
-        return
-      }
       if (root.phase === 0) {
+        // The default companion is DRAWN, so readiness here is the opposite of
+        // what a spritesheet pet means by it: no sheet was loaded and none
+        // should have been. Gritty's own path is proved at phase 21, once the
+        // migration below has asked for it.
+        if (!service.bloubPet || service.spritePetId !== "bloub") return
+        if (service.spriteOk) {
+          root.fail("the drawn companion loaded a spritesheet")
+          return
+        }
+        if (String(service.spritePetDir || "").indexOf("$install_dir/pets/bloub") !== 0) {
+          root.fail("Bloub came from outside the isolated plugin: " + service.spritePetDir)
+          return
+        }
+        if (service.cfgShape !== "cercle" || service.cfgColor !== "blanc"
+            || service.cfgExpression !== "neutre") {
+          root.fail("a fresh install is not a white circle at rest: "
+            + service.cfgShape + "/" + service.cfgColor + "/" + service.cfgExpression)
+          return
+        }
+        // A drawn companion never walks, so the settings that would walk it
+        // must be off however the desktop is configured.
+        if (!service.stillPet || service.cfgFollow) {
+          root.fail("the drawn companion was allowed to walk")
+          return
+        }
         var petIds = []
         for (var p = 0; p < service.installedPets.length; p++)
           petIds.push(String(service.installedPets[p].id || ""))
-        if (petIds.join(",") !== "gritty,quattro,gritty-front") return
-        if (service.petSize !== 150) {
-          root.fail("fresh Gritty did not use its L recommendation: " + service.petSize)
+        if (petIds.join(",") !== "bloub,gritty,quattro,gritty-front") return
+        if (service.petSize !== 130) {
+          root.fail("fresh Bloub did not use its recommended size: " + service.petSize)
           return
         }
         if (service.worldMonitor === "" || !service.activeChief) return
@@ -234,9 +255,9 @@ ShellRoot {
             + ", width=" + service.worldWidth + ")")
           return
         }
-        console.log("COLDSTART body: sprite pet: gritty source: bundled")
-        console.log("COLDSTART picker: gritty + quattro + gritty-front")
-        console.log("COLDSTART defaults: Gritty + L")
+        console.log("COLDSTART body: drawn pet: bloub source: bundled")
+        console.log("COLDSTART picker: bloub + gritty + quattro + gritty-front")
+        console.log("COLDSTART defaults: Bloub + white circle + neutral + 130")
         console.log("COLDSTART placement: active screen + bottom-right home")
         // Exercise the real 3.x migration after proving a clean install. Old
         // setup instructions could leave settings in a file, more than one
@@ -292,11 +313,31 @@ ShellRoot {
             || canonical.workdir !== "/legacy" || canonical.talk !== false
             || canonical.agent !== "codex" || canonical.followFocus !== false
             || Number(canonical.speakMax) !== 333
-            || Number(canonical._omarchiefConfigVersion) !== 1) {
+            || Number(canonical._grokchiefConfigVersion) !== 1) {
           root.fail("legacy settings did not merge into the canonical entry")
           return
         }
         console.log("COLDSTART migration: legacy duplicates -> one bar entry")
+        root.phase = 21
+        return
+      }
+      if (root.phase === 21) {
+        // The migrated entry asked for Gritty, so this is where the spritesheet
+        // path is proved. A drawn default must not quietly leave the artwork
+        // machinery untested, and a developer's own installed pet must still
+        // not be able to satisfy it.
+        if (!service.spriteOk || service.spritePetId !== "gritty"
+            || bundledSprite.status !== Image.Ready) return
+        if (service.bloubPet) {
+          root.fail("a spritesheet pet still claims to be drawn")
+          return
+        }
+        var sheet = String(service.spriteBaseSource || "")
+        if (sheet.indexOf("$install_dir/pets/gritty/") === -1) {
+          root.fail("Gritty came from outside the isolated plugin: " + sheet)
+          return
+        }
+        console.log("COLDSTART body: sprite pet: gritty source: bundled")
         var next = JSON.parse(JSON.stringify(root.isolatedConfig))
         next.bar.layout.left[0].pet = "pet-that-is-not-installed"
         root.isolatedConfig = next
@@ -305,7 +346,10 @@ ShellRoot {
       }
       if (root.phase === 3) {
         if (service.cfgPet !== "pet-that-is-not-installed") return
-        console.log("COLDSTART fallback: missing custom pet -> bundled gritty")
+        // The last candidate in the walk is the bundled default, so a body that
+        // cannot be found ends on the drawn one rather than on an empty stage.
+        if (!service.bloubPet || service.spritePetId !== "bloub") return
+        console.log("COLDSTART fallback: missing custom pet -> bundled bloub")
         var bounded = JSON.parse(JSON.stringify(root.isolatedConfig))
         var entry = bounded.bar.layout.left[0]
         entry.pet = "gritty"
@@ -354,7 +398,7 @@ ShellRoot {
       if (root.phase === 5) {
         var sealed = root.isolatedConfig.bar.layout.left[0]
         if (Number(sealed.size) !== 140 || sealed.workdir !== "/legacy"
-            || Number(sealed._omarchiefConfigVersion) !== 1) {
+            || Number(sealed._grokchiefConfigVersion) !== 1) {
           root.fail("retired settings file was merged after migration")
           return
         }
@@ -387,7 +431,7 @@ ShellRoot {
         var topOnly = right.length === 1 ? right[0] : null
         if (!topOnly || topOnly.id !== "$plugin_id"
             || Number(topOnly.size) !== 155 || topOnly.talk !== false
-            || Number(topOnly._omarchiefConfigVersion) !== 1
+            || Number(topOnly._grokchiefConfigVersion) !== 1
             || (root.isolatedConfig.plugins || []).length !== 0) {
           root.fail("top-level-only install did not become one right bar entry")
           return
@@ -440,7 +484,7 @@ out=$(env \
 code=$?
 set -e
 
-printf '%s\n' "$out" | grep -E 'COLDSTART|omarchief:|PluginRegistry:|plugin .* failed' || true
+printf '%s\n' "$out" | grep -E 'COLDSTART|grokchief:|PluginRegistry:|plugin .* failed' || true
 
 if [[ $code -ne 0 ]]; then
   printf '%s\n' "$out" >&2
@@ -470,9 +514,11 @@ fi
 
 printf '%s\n' "$out" | grep -q 'COLDSTART body: sprite pet: gritty source: bundled' \
   || { echo "coldstart-check: bundled Gritty never became ready" >&2; exit 1; }
-printf '%s\n' "$out" | grep -q 'COLDSTART picker: gritty + quattro + gritty-front' \
+printf '%s\n' "$out" | grep -q 'COLDSTART body: drawn pet: bloub source: bundled' \
+  || { echo "coldstart-check: the drawn companion never became ready" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART picker: bloub + gritty + quattro + gritty-front' \
   || { echo "coldstart-check: bundled pets never reached the picker" >&2; exit 1; }
-printf '%s\n' "$out" | grep -q 'COLDSTART defaults: Gritty + L' \
+printf '%s\n' "$out" | grep -q 'COLDSTART defaults: Bloub + white circle + neutral + 130' \
   || { echo "coldstart-check: fresh companion defaults changed" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q 'COLDSTART migration: legacy duplicates -> one bar entry' \
   || { echo "coldstart-check: legacy settings did not migrate cleanly" >&2; exit 1; }
@@ -482,8 +528,8 @@ printf '%s\n' "$out" | grep -q 'COLDSTART migration: top-only -> right bar entry
   || { echo "coldstart-check: top-level-only install did not gain its bar widget" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q 'COLDSTART architecture: service + bar-widget' \
   || { echo "coldstart-check: service/widget pair never became ready" >&2; exit 1; }
-printf '%s\n' "$out" | grep -q 'COLDSTART fallback: missing custom pet -> bundled gritty' \
-  || { echo "coldstart-check: missing pet did not fall back to bundled Gritty" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q 'COLDSTART fallback: missing custom pet -> bundled bloub' \
+  || { echo "coldstart-check: missing pet did not fall back to the bundled default" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q 'COLDSTART bounds: extreme config -> safe defaults' \
   || { echo "coldstart-check: persisted numeric settings escaped their bounds" >&2; exit 1; }
 

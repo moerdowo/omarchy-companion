@@ -9,14 +9,14 @@ Usage:
   tools/build-source-archive [output.tar.gz]
   tools/build-source-archive --check archive.tar.gz
 
-Builds the eight-file omarchief-artwork-sources.tar.gz release asset. The
-default output is ${TMPDIR:-/tmp}/omarchief-artwork-sources.tar.gz. --check
+Builds the eight-file grokchief-artwork-sources.tar.gz release asset. The
+default output is ${TMPDIR:-/tmp}/grokchief-artwork-sources.tar.gz. --check
 rebuilds the archive and requires it to match byte for byte.
 USAGE
 }
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-archive_name=omarchief-artwork-sources.tar.gz
+archive_name=grokchief-artwork-sources.tar.gz
 members=(
   tools/source/NOTICE
   tools/source/README.md
@@ -91,7 +91,7 @@ if [[ $mode == check ]]; then
     echo "build-source-archive: archive does not exist: $output" >&2
     exit 1
   }
-  temporary=$(mktemp "${TMPDIR:-/tmp}/omarchief-artwork-check.XXXXXX.tar.gz")
+  temporary=$(mktemp "${TMPDIR:-/tmp}/grokchief-artwork-check.XXXXXX.tar.gz")
   build "$temporary"
   cmp --silent -- "$temporary" "$output" || {
     echo "build-source-archive: archive does not match the audited sources and epoch" >&2

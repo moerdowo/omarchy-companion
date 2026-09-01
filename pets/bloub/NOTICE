@@ -1,0 +1,21 @@
+Bloub — the drawn companion bundled with Grok Chief
+
+This folder holds no artwork. The character is code: `keystone/Bloub.js`
+computes its outline, its eyes and its decor every frame, and `pet.json`
+only says which renderer to use and how large it prefers to be.
+
+That code is a port of bloub (https://github.com/jeremy-prt/bloub),
+Copyright (c) 2026 Jérémy Perret, MIT — an SVG recreation of the x.ai bot
+avatar, whose fourteen states, silhouettes, easings and eye geometry were
+measured frame by frame off the reference video. The port changes the
+output, not the geometry: it emits points and matrices for a QML Canvas
+where the original emits SVG path strings for a browser. Every constant,
+easing and schedule is carried over unaltered, and a test checks that
+claim against the original engine rather than trusting it.
+
+`keystone/BloubFit.js` is generated, not written: `tools/build-eyefit`
+runs bloub's own eye-fit solver and prints the table it produces.
+
+Grok Chief is not affiliated with x.ai and does not reproduce anything of
+theirs beyond what bloub already did — the shape of an avatar. See the
+repository's `THIRD_PARTY_NOTICES.md`.

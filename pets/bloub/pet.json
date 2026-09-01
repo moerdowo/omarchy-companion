@@ -1,0 +1,8 @@
+{
+  "id": "bloub",
+  "displayName": "Bloub",
+  "author": "Jérémy Perret; adapted for Omarchief",
+  "description": "One filled shape that morphs between states, with two capsule eyes cut out of it. Drawn every frame rather than blitted, so its shape, its colour and its expression are settings.",
+  "render": "bloub",
+  "size": 130
+}

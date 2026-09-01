@@ -1,6 +1,6 @@
-# Working on Omarchief
+# Working on Grok Chief
 
-Omarchief follows Omarchy 4's regular plugin contract. The manifest exposes
+Grok Chief follows Omarchy 4's regular plugin contract. The manifest exposes
 one resident `service` and one `bar-widget`:
 
 - `keystone/Service.qml` owns the creature, agent turn, state, and IPC.
@@ -9,6 +9,20 @@ one resident `service` and one `bar-widget`:
 - `keystone/Panel.qml` contains the widget's overview and settings popout.
 - `keystone/Chief.qml` is presentation and interaction only.
 - `keystone/Model.js` contains pure logic covered by Node tests.
+- `keystone/Bloub.js` is the drawn companion: its geometry, its states, its
+  expressions, and the translation from this plugin's moods to them. A
+  `.pragma library`, so it holds no QML and one copy is shared.
+- `keystone/BloubFit.js` is **generated** — see `tools/build-eyefit`. Do not
+  edit it by hand.
+- `keystone/BloubBody.qml` is the part a pure engine must not have: a clock,
+  the desktop's palette, and a Canvas.
+
+The split between those last three is the same one the rest of the plugin
+uses. `Bloub.js` has no clock: `sample(t)` is a function of time, and
+everything external — the state, the shape, the expression, where the pointer
+is — enters through a setter that carries a date. That is what makes it
+testable without a canvas, and what makes re-reading a past date give back the
+same picture. `BloubBody.qml` is its only client.
 
 Keeping state in the service matters. Omarchy creates a bar widget on every
 monitor, but there must only ever be one conversation, creature, and IPC
@@ -32,13 +46,40 @@ node --test tests/*.test.mjs
 tools/coldstart-check
 ```
 
-The Node suite checks the model, manifest-to-entry-point contract, bundled
-pet metadata, repository hygiene, and the service/widget boundary. The
+The Node suite checks the model, the drawn companion, the
+manifest-to-entry-point contract, bundled pet metadata, repository hygiene,
+and the service/widget boundary. `tests/bloub.test.mjs` loads the two QML
+JavaScript libraries by stripping their `.pragma`/`.import` directives, which
+are the only lines in them Node cannot read. The
 cold-start check is the integration test: it creates an empty HOME and XDG
 environment, installs this checkout there with a real `manifest.json` and
 `shell.json`, starts a fresh Quickshell process, and requires the bundled
 Gritty sheet to load. It does not read the developer's installed pets or
 plugin settings.
+
+Add `keystone/BloubBody.qml` to that `qmllint` list along with the rest.
+
+## The drawn companion
+
+Three generators sit behind it, none of which runs at install time and all of
+which need the network or an SVG rasteriser:
+
+```bash
+tools/build-eyefit        # keystone/BloubFit.js, from bloub's own solver
+tools/verify-bloub-port   # ~70k assertions against the upstream engine
+tools/build-preview       # preview.png and docs/expressions.png
+```
+
+`tools/verify-bloub-port` is the one that matters on a release. The port
+claims that only the output changed and that every constant, easing and
+schedule came over unaltered — a claim about numbers nobody can check by
+looking. It samples both engines over every state, shape, expression and a set
+of awkward dates, re-encodes this one's points and matrices into the exact
+strings the original emits, and compares them character for character.
+
+If a change to `Bloub.js` is meant to alter the character rather than the
+plumbing, that tool will fail, and it should: say so in the commit rather than
+quietly widening its tolerances.
 
 Use Qt 6's `qmllint`; `/usr/bin/qmllint` can still be Qt 5 on Omarchy and
 silently rejects QML 6 syntax. The three disabled categories are false
@@ -55,8 +96,8 @@ Install the committed checkout into a disposable desktop or test account.
 installed clone for live iteration:
 
 ```bash
-omarchy plugin add file:///absolute/path/to/omarchief --enable
-cd ~/.config/omarchy/plugins/io.github.daventhedude.omarchief
+omarchy plugin add file:///absolute/path/to/grokchief --enable
+cd ~/.config/omarchy/plugins/io.github.moerdowo.grokchief
 $EDITOR .
 journalctl --user -t omarchy-shell -f
 ```
@@ -66,11 +107,11 @@ rescans the manifest, and reloads the affected service and widget. A shell
 restart should not be part of the normal edit loop.
 
 The service writes its public snapshot to
-`$XDG_STATE_HOME/omarchy/omarchief/status.json` (normally
-`~/.local/state/omarchy/omarchief/status.json`). For the running version:
+`$XDG_STATE_HOME/omarchy/grokchief/status.json` (normally
+`~/.local/state/omarchy/grokchief/status.json`). For the running version:
 
 ```bash
-omarchy-shell omarchief status
+omarchy-shell grokchief status
 ```
 
 The status command and the journal are more reliable than assuming the copy
@@ -96,7 +137,7 @@ a polished hero screenshot cannot hide a broken state.
 ## Pet work
 
 `tools/build-faces.py` builds expression grids and `tools/build-atlas.py`
-builds animated sheets. `tools/omarchief-recolor` is the same deterministic
+builds animated sheets. `tools/grokchief-recolor` is the same deterministic
 recolouring path used at runtime. Original Gritty renders are distributed as
 a separate release asset; [tools/source/README.md](../tools/source/README.md)
 documents their names and build commands.
@@ -106,7 +147,7 @@ must include each `pet.json`, the exact spritesheet it names, and its NOTICE.
 Build the separate, reproducible source asset with:
 
 ```bash
-asset="${TMPDIR:-/tmp}/omarchief-artwork-sources.tar.gz"
+asset="${TMPDIR:-/tmp}/grokchief-artwork-sources.tar.gz"
 tools/build-source-archive "$asset"
 tools/build-source-archive --check "$asset"
 ```
@@ -131,7 +172,7 @@ Before publishing or preparing a marketplace submission:
    local check above from the clone, not from the development checkout. Confirm
    `manifest.json`, the changelog version/date, current screenshots, notices,
    and every intended deletion are present in the clone.
-3. On a disposable Omarchy 4 user with no Omarchief config, pets, state,
+3. On a disposable Omarchy 4 user with no Grok Chief config, pets, state,
    or prior scratchpad, install with the README command. Accept the normal
    warning and placement prompt. Require one service, one widget, bundled
    Gritty at size L on first paint, and exactly `gritty`, `quattro`, then
@@ -158,7 +199,7 @@ Before publishing or preparing a marketplace submission:
    running. Require the service, widget, and child process tree to disappear;
    no hook or external application setting may remain. Only the documented
    state/history directory may survive.
-9. Build and byte-check `omarchief-artwork-sources.tar.gz` with the helper
+9. Build and byte-check `grokchief-artwork-sources.tar.gz` with the helper
    above. Inspect its eight exact members, record the printed SHA-256, and
    attach that file to release `v$(jq -r .version manifest.json)`. Confirm the
    archive itself and `tools/source/*.png` are absent from `git ls-files`.

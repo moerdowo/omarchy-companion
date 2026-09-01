@@ -5,6 +5,7 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
+import "Bloub.js" as Bloub
 
 // The chief itself. Pure presentation: the panel tells it the mood, the
 // energy, and what to say — this file does the living. It renders a companion
@@ -30,7 +31,15 @@ Item {
   // that ever shifts it across the screen is a hand.
   property var faces: null
   property int columns: 8
-  readonly property bool still: faces !== null
+  // A companion that is drawn rather than blitted: no sheet and no cells, so
+  // its shape, its colour and its expression are settings instead of pixels
+  // and a change to any of them morphs instead of cutting. It has no legs
+  // either, so it counts as still for everything that would walk it about.
+  property bool bloub: false
+  property string bloubShape: ""
+  property string bloubColor: ""
+  property string bloubExpression: ""
+  readonly property bool still: faces !== null || bloub
   // Whether a resting creature is allowed to change its expression on its
   // own, and how readily. Nothing moves either way — it is the difference
   // between a face and a photograph of one.
@@ -579,7 +588,8 @@ Item {
     id: blinkTimer
     interval: 3200
     repeat: true
-    running: pet.motionEnabled && pet.onStage && !pet.spriteOk && pet.mood !== "sleeping"
+    running: pet.motionEnabled && pet.onStage && !pet.spriteOk && !pet.bloub
+             && pet.mood !== "sleeping"
     onTriggered: {
       pet.lidsClosed = true
       blinkOff.restart()
@@ -592,14 +602,20 @@ Item {
 
   Item {
     id: body
-    width: pet.spriteOk ? Math.round(pet.petSize * pet.cellAspect) : pet.petSize
-    height: pet.spriteOk ? pet.petSize : pet.petSize * 0.82
+    width: pet.bloub ? pet.petSize
+      : pet.spriteOk ? Math.round(pet.petSize * pet.cellAspect) : pet.petSize
+    height: pet.bloub ? pet.petSize
+      : pet.spriteOk ? pet.petSize : pet.petSize * 0.82
     x: Math.round(pet.px - width / 2 + pet.tuckSlide)
     // What stands on the line is the creature's feet, not the bottom of the
     // cell it is drawn in. Sprite cells may carry transparent air below the
     // artwork; putting that edge on the line would leave the body hovering.
+    // The drawn body's canvas reaches past the creature on every side; without
+    // the same allowance here the bottom of an orbit is sliced off by the edge
+    // of the screen.
     readonly property real groundY: pet.height - height * pet.contentBottom
                                     - pet.groundOffset - pet.hop * pet.petSize * 0.14
+                                    - (pet.bloub ? pet.petSize * Bloub.OVERFLOW : 0)
     y: groundY + (1 - pet.emerge) * (pet.height - groundY + 8) + pet.tuckDrop
 
     // Pixel-art pets keep their silhouette; only the blob gets squashed,
@@ -608,7 +624,7 @@ Item {
       Rotation {
         origin.x: body.width / 2
         origin.y: body.height
-        angle: pet.reduceMotion || pet.spriteOk ? 0
+        angle: pet.reduceMotion || pet.spriteOk || pet.bloub ? 0
           : (pet.walking ? pet.dir * 4 : (hit.containsMouse ? -2 : 0))
         Behavior on angle {
           enabled: !pet.reduceMotion
@@ -618,10 +634,15 @@ Item {
       Scale {
         origin.x: body.width / 2
         origin.y: body.height
+        // The drawn body breathes and drifts from inside the engine, on
+        // curves measured off the reference. A second squash over the top of
+        // that reads as a wobble, so it keeps only the press.
         xScale: pet.reduceMotion ? 1
+          : pet.bloub ? (hit.pressed ? 0.94 : 1)
           : pet.spriteOk ? (hit.pressed ? 0.95 : 1 - pet.rest * 0.007)
           : (1 - pet.hop * 0.05 + pet.breathe * (pet.mood === "working" ? 0.025 : 0.02)) * (hit.pressed ? 0.94 : 1)
         yScale: pet.reduceMotion ? 1
+          : pet.bloub ? (hit.pressed ? 0.94 : 1)
           : pet.spriteOk ? (hit.pressed ? 0.95 : 1 + pet.rest * 0.014)
           : (1 + pet.hop * 0.09 + pet.breathe * (pet.mood === "working" ? -0.05 : 0.045)) * (hit.pressed ? 0.94 : 1)
         Behavior on xScale {
@@ -647,7 +668,9 @@ Item {
 
     Loader {
       anchors.fill: parent
-      sourceComponent: pet.spriteOk ? spriteBody : blobBody
+      // Clipping is off so the orbits may reach past the creature.
+      clip: false
+      sourceComponent: pet.bloub ? bloubBody : pet.spriteOk ? spriteBody : blobBody
     }
 
     BorderSurface {
@@ -660,6 +683,33 @@ Item {
       radius: Style.cornerRadius
       borderSpec: Border.controlSpec("focus", Color.foreground, Color.accent)
       Accessible.ignored: true
+    }
+  }
+
+  // The drawn companion. Everything it needs about the desktop arrives as a
+  // property; everything it knows about itself lives in Bloub.js.
+  Component {
+    id: bloubBody
+    BloubBody {
+      petSize: pet.petSize
+      mood: pet.mood
+      shapeId: pet.bloubShape
+      colorId: pet.bloubColor
+      expressionId: pet.bloubExpression
+      accent: pet.bodyColor
+      // What shows through the eyes. They are holes in the original, so the
+      // colour they reveal is the ground the creature stands on, not white.
+      paper: pet.inkColor
+      reduceMotion: pet.reduceMotion
+      expressions: pet.expressions
+      glanceChance: pet.glanceChance
+      active: pet.active && pet.onStage
+      dragging: hit.holding
+      // It watches the pointer while the pointer is on it. Tucked away there
+      // is nothing to look up at, and mid-drag the head should stay put.
+      pointer: hit.containsMouse && !hit.holding && !pet.tucked
+      pointerX: (hit.mouseX - (body.x + body.width / 2 - hit.x)) / Math.max(1, pet.petSize)
+      pointerY: (hit.mouseY - (body.y + body.height / 2 - hit.y)) / Math.max(1, pet.petSize)
     }
   }
 
@@ -943,9 +993,9 @@ Item {
 
     Accessible.role: actionable ? Accessible.Button : Accessible.StaticText
     Accessible.ignored: !visible
-    Accessible.name: moodText === "!" ? "Omarchief needs attention"
-      : moodText === "✓" ? "Omarchief finished"
-      : moodText === "✗" ? "Omarchief reported an error" : "Omarchief status"
+    Accessible.name: moodText === "!" ? "Grok Chief needs attention"
+      : moodText === "✓" ? "Grok Chief finished"
+      : moodText === "✗" ? "Grok Chief reported an error" : "Grok Chief status"
     Accessible.description: actionable ? "Open the agent console" : ""
     Accessible.focusable: actionable
     Accessible.onPressAction: if (actionable) pet.consoleRequested()
@@ -1027,7 +1077,7 @@ Item {
     Accessible.role: actionable ? Accessible.Button : Accessible.StaticText
     Accessible.ignored: !visible
     Accessible.name: pet.sayMode === "think"
-      ? (pet.doing !== "" ? "Omarchief is working: " + pet.doing : "Omarchief is working")
+      ? (pet.doing !== "" ? "Grok Chief is working: " + pet.doing : "Grok Chief is working")
       : pet.sayText
     Accessible.description: pet.sayMode === "error" ? "Open the agent console"
       : pet.sayMode === "say" ? "Dismiss this reply" : ""
@@ -1201,7 +1251,7 @@ Item {
     font.family: Style.font.family
     font.pixelSize: Style.font.body
     selectByMouse: true
-    Accessible.name: "Ask Omarchief"
+    Accessible.name: "Ask Grok Chief"
     Accessible.description: "Enter an instruction. Press Escape to close."
     onAccepted: {
       var draft = text
@@ -1281,7 +1331,7 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.ignored: !pet.onStage
-    Accessible.name: "Omarchief"
+    Accessible.name: "Grok Chief"
     Accessible.description: pet.tooltipText
     Accessible.focusable: pet.promptOpen
     Accessible.focused: activeFocus

@@ -31,7 +31,7 @@ rounds = int(sys.argv[1])
 if not 1 <= rounds <= 20:
     raise SystemExit("perform-check: rounds must be between 1 and 20")
 state_home = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
-status = os.path.join(state_home, "omarchy", "omarchief", "status.json")
+status = os.path.join(state_home, "omarchy", "grokchief", "status.json")
 
 def read():
     try:
@@ -40,7 +40,7 @@ def read():
         return {}
 
 def ipc(*args):
-    result = subprocess.run(["omarchy-shell", "omarchief", *args],
+    result = subprocess.run(["omarchy-shell", "grokchief", *args],
                             capture_output=True, text=True)
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"

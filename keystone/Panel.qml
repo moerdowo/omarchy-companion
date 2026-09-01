@@ -4,13 +4,14 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
+import "Bloub.js" as Bloub
 
-// A monitor-local control surface over the single Omarchief service.
+// A monitor-local control surface over the single Grok Chief service.
 // The panel never shells out and never mirrors state through a file: every
 // label and action talks to the same object that owns the desktop creature.
 Panel {
   id: root
-  moduleName: "io.github.daventhedude.omarchief"
+  moduleName: "io.github.moerdowo.grokchief"
   manageIpc: false
 
   property var anchorItem: null
@@ -49,8 +50,11 @@ Panel {
   // bundled fallback while that request is missing or still loading.
   readonly property string petId: ready ? String(service.cfgPet || "") : ""
   readonly property string pinnedScreen: ready ? String(service.cfgScreen || "") : ""
-  readonly property bool hasFaces: ready && Model.glanceFaces(
-    service.spriteFaces, service.spriteIdleFaces, service.spriteRows, service.spriteColumns).length > 0
+  // A drawn companion is nothing but expressions, so it always has them; a
+  // sprite one only when its artist drew faces it may borrow.
+  readonly property bool drawnPet: ready && service.bloubPet === true
+  readonly property bool hasFaces: drawnPet || (ready && Model.glanceFaces(
+    service.spriteFaces, service.spriteIdleFaces, service.spriteRows, service.spriteColumns).length > 0)
   readonly property bool canBubble: ready && hasAgent && Model.canTalkTo(agentId)
   readonly property bool canWalk: ready && service.stillPet !== true
   readonly property bool canTheme: ready && service.spriteThemeable !== null
@@ -117,7 +121,7 @@ Panel {
       var id = entry && typeof entry === "object" ? String(entry.id || "") : String(entry || "")
       // Following Omarchy's default remains future-proof because its own
       // launcher owns that command. An explicit override is only offered when
-      // Omarchief can actually build the corresponding console command.
+      // Grok Chief can actually build the corresponding console command.
       if (id !== "" && Model.canOpenConsole(id)) {
         if (id === configuredAgent) foundConfigured = true
         out.push({
@@ -147,6 +151,16 @@ Panel {
     return out
   }
 
+  // The drawn companion's three catalogues. They come from Bloub.js rather
+  // than from the service so that the panel shows every choice the character
+  // actually has, in the character's own order, and never a stale copy.
+  readonly property var shapeOptions: Bloub.panelOptions(Bloub.SHAPES)
+  readonly property var colorOptions: Bloub.panelOptions(Bloub.COLORS)
+  readonly property var expressionOptions: Bloub.panelOptions(Bloub.EXPRESSIONS)
+  readonly property string shapeId: ready ? String(service.cfgShape || "") : ""
+  readonly property string colorId: ready ? String(service.cfgColor || "") : ""
+  readonly property string expressionId: ready ? String(service.cfgExpression || "") : ""
+
   readonly property var screenOptions: {
     var out = [{ value: "", label: "Not pinned" }]
     var foundPinned = pinnedScreen === ""
@@ -164,6 +178,8 @@ Panel {
 
   readonly property bool dropdownOwnsKeys: agentDropdown.popupOpen
     || petDropdown.popupOpen || screenDropdown.popupOpen
+    || shapeDropdown.popupOpen || colorDropdown.popupOpen
+    || expressionDropdown.popupOpen
 
   function cleanLabel(value, fallback) {
     var text = String(value || fallback || "").replace(/[\r\n\t]+/g, " ").trim()
@@ -181,6 +197,9 @@ Panel {
     agentDropdown.value = ready && service.agentIsDefault ? "" : agentId
     petDropdown.value = petId
     screenDropdown.value = pinnedScreen
+    shapeDropdown.value = shapeId
+    colorDropdown.value = colorId
+    expressionDropdown.value = expressionId
   }
 
   function agentName(id) {
@@ -226,7 +245,7 @@ Panel {
   }
 
   function contextTitle() {
-    if (!ready) return "Starting Omarchief"
+    if (!ready) return "Starting Grok Chief"
     if (!hasAgent) return "Choose an agent to take orders"
     if (mood === "error") return "The agent could not finish"
     if (service.agentSilent === true) return "Still working"
@@ -319,6 +338,9 @@ Panel {
     agentDropdown.close()
     petDropdown.close()
     screenDropdown.close()
+    shapeDropdown.close()
+    colorDropdown.close()
+    expressionDropdown.close()
   }
 
   function close() {
@@ -358,6 +380,11 @@ Panel {
     if (canBubble) settingsIds.push("talk")
     if (canBubble && service && service.cfgTalk) settingsIds.push("conversation")
     if (petOptions.length > 1) settingsIds.push("pet")
+    if (drawnPet) {
+      settingsIds.push("shape")
+      settingsIds.push("color")
+      settingsIds.push("expression")
+    }
     if (canTheme) settingsIds.push("theme")
     if (hasFaces) {
       settingsIds.push("expressions")
@@ -386,6 +413,9 @@ Panel {
       case "talk": return talkToggle
       case "conversation": return conversationGroup
       case "pet": return petDropdown
+      case "shape": return shapeDropdown
+      case "color": return colorDropdown
+      case "expression": return expressionDropdown
       case "theme": return themeToggle
       case "expressions": return expressionsToggle
       case "often": return oftenGroup
@@ -519,6 +549,9 @@ Panel {
       case "talk": setSetting("talk", !service.cfgTalk); break
       case "conversation": setSetting("sessionIdleMin", Number(conversationOptions[conversationCursor].value)); break
       case "pet": petDropdown.toggle(); break
+      case "shape": shapeDropdown.toggle(); break
+      case "color": colorDropdown.toggle(); break
+      case "expression": expressionDropdown.toggle(); break
       case "theme": setSetting("theme", !service.cfgTheme); break
       case "expressions": setSetting("expressions", !service.cfgExpressions); break
       case "often": setSetting("expressionChance", Number(oftenOptions[oftenCursor].value)); break
@@ -629,7 +662,7 @@ Panel {
             PanelHero {
               id: overviewHero
               width: parent.width
-              title: "Omarchief"
+              title: "Grok Chief"
               meta: root.heroMeta()
               detail: root.ready ? root.energyPercent + "%" : ""
               foreground: root.foreground
@@ -821,7 +854,7 @@ Panel {
             PanelHero {
               id: settingsHero
               width: parent.width
-              title: "Omarchief"
+              title: "Grok Chief"
               meta: "Settings · changes apply immediately"
               detail: root.monitorName
               foreground: root.foreground
@@ -954,6 +987,62 @@ Panel {
               onHovered: function(on) { if (on) root.setCursor("pet", petDropdown) }
               onChanged: function(value) {
                 root.setSetting("pet", value)
+                Qt.callLater(root.syncDropdownValues)
+              }
+            }
+
+            // A drawn companion has no artwork to recolour, so the choices a
+            // sheet cannot offer are offered instead: its outline, its colour
+            // and the face it wears when nothing is happening. Each change
+            // morphs on screen rather than cutting, which is the whole reason
+            // a drawn body is worth having.
+            Dropdown {
+              id: shapeDropdown
+              visible: root.drawnPet
+              width: parent.width
+              label: "Shape"
+              value: ""
+              options: root.shapeOptions
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              hasCursor: root.cursorActive && root.focusId === "shape"
+              onHovered: function(on) { if (on) root.setCursor("shape", shapeDropdown) }
+              onChanged: function(value) {
+                root.setSetting("shape", value)
+                Qt.callLater(root.syncDropdownValues)
+              }
+            }
+
+            Dropdown {
+              id: colorDropdown
+              visible: root.drawnPet
+              width: parent.width
+              label: "Colour"
+              value: ""
+              options: root.colorOptions
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              hasCursor: root.cursorActive && root.focusId === "color"
+              onHovered: function(on) { if (on) root.setCursor("color", colorDropdown) }
+              onChanged: function(value) {
+                root.setSetting("color", value)
+                Qt.callLater(root.syncDropdownValues)
+              }
+            }
+
+            Dropdown {
+              id: expressionDropdown
+              visible: root.drawnPet
+              width: parent.width
+              label: "Resting expression"
+              value: ""
+              options: root.expressionOptions
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              hasCursor: root.cursorActive && root.focusId === "expression"
+              onHovered: function(on) { if (on) root.setCursor("expression", expressionDropdown) }
+              onChanged: function(value) {
+                root.setSetting("expression", value)
                 Qt.callLater(root.syncDropdownValues)
               }
             }

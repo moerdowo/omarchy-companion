@@ -1,31 +1,62 @@
-# Making a pet for Omarchief
+# Making a pet for Grok Chief
 
 A pet is a folder with a `pet.json` and one spritesheet. Drop it into
-`~/.config/omarchief/pets/<id>/` and it appears under **Companion** in the
+`~/.config/grokchief/pets/<id>/` and it appears under **Companion** in the
 bar widget's settings. To name it without the panel:
 
 ```bash
-omarchy-shell omarchief pet <id>
+omarchy-shell grokchief pet <id>
 ```
 
 which writes `pet` onto this plugin's entry in
 `~/.config/omarchy/shell.json`, where the shell keeps every plugin's
-settings. A pre-4.0 `~/.config/omarchy/omarchief.json` is read once and
+settings. A pre-4.0 `~/.config/omarchy/grokchief.json` is read once and
 migrated there, so an older setup keeps working without creating two sources
 of truth.
 
 Codex/Petdex v1 and v2 pets work as they are. Rows 0–8 keep their standard
 meaning. A v2 manifest sets `spriteVersionNumber` to `2` and reserves rows
-9–10 for its sixteen look directions; Omarchief leaves those rows intact.
-Optional Omarchief activities are explicitly declared and belong after the
+9–10 for its sixteen look directions; Grok Chief leaves those rows intact.
+Optional Grok Chief activities are explicitly declared and belong after the
 standard atlas: row 9 onward for v1, row 11 onward for v2.
+
+## A pet that has no artwork
+
+Before any of the below: a pet does not have to be a sheet at all. One that
+names a renderer is DRAWN — its body is computed every frame — and none of the
+grid, cell, atlas or theme-repaint machinery in this document applies to it.
+
+```json
+{
+  "id": "bloub",
+  "displayName": "Bloub",
+  "description": "One sentence, shown wherever pets are listed.",
+  "render": "bloub",
+  "size": 130
+}
+```
+
+`render` is the only field that makes it one, and `bloub` is the only renderer
+this plugin ships. `size` and `content` are read, because they are about
+placing a body on a desktop rather than about artwork; everything else is
+ignored. There is no `spritesheetPath`, no `rows`, no `faces`, no `themeable`.
+
+A drawn pet is still, in the sense the last section of this document means: it
+never moves across the screen on its own, so following the focus and roaming
+are off for it whatever the settings say. What it does instead of holding a
+pose is animate — the whole character is a silhouette that morphs, and its
+moods are animations rather than cells.
+
+Adding a second renderer would mean a second `keystone/<Name>Body.qml` and a
+branch beside `bloub` in `Service.qml` and `Chief.qml`. The pet format has
+room for it; nothing else here needs to change.
 
 ## The sheet
 
 Every sheet is a regular grid of equal-size cells. A Codex/Petdex animated
 atlas uses the ecosystem's eight columns of 192 × 208 frames. An expression
 grid may declare another `columns` value and may use rectangular cells of any
-proportion; Omarchief measures their aspect ratio from the loaded sheet.
+proportion; Grok Chief measures their aspect ratio from the loaded sheet.
 Keep the sheet width evenly divisible by `columns` and its height evenly
 divisible by `rows`, so filtering never samples across a cell boundary.
 
@@ -144,7 +175,7 @@ but lightness left to tell it apart. Those get 4.5:1 instead. A desktop
 that is a neutral is exempt: hue was never going to separate anything
 there, and the pet's own colour already does.
 
-Set `OMARCHIEF_CONTRAST_FLOOR` to override the whole judgement.
+Set `GROKCHIEF_CONTRAST_FLOOR` to override the whole judgement.
 
 **What this asks of the artwork:** keep the surfaces you want recoloured
 inside one hue family, and paint them with the full range from shadow to
@@ -297,12 +328,12 @@ plate or a name — reads backwards the moment you do.
 Nothing says a sheet needs more than one cell. `rows: 1`, `columns: 1`
 and `faces: { "idle": [0, 0] }` is a complete pet: it rests, it wears
 your theme if it has a hue window, it can be dragged, and that is all.
-`quattro`, bundled with Omarchief, is built that way.
+`quattro`, bundled with Grok Chief, is built that way.
 
 ## Building an animated sheet
 
 `tools/build-atlas.py` does all of the above. Supply your own aligned renders;
-the paths below are examples and are not part of Omarchief's artwork-source
+the paths below are examples and are not part of Grok Chief's artwork-source
 archive:
 
 ```bash

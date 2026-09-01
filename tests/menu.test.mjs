@@ -150,19 +150,19 @@ test("bar and popout are views over the resident service", () => {
       `${name} must not poll or mirror the service through files`)
     assert.doesNotMatch(source, /\bProcess\s*\{/,
       `${name} must not shell out for service actions`)
-    assert.doesNotMatch(source, /omarchy-shell\s+omarchief/,
+    assert.doesNotMatch(source, /omarchy-shell\s+grokchief/,
       `${name} must call the service directly`)
   }
 
   const ipcTargets = [...service.matchAll(/\bIpcHandler\s*\{[\s\S]*?\btarget\s*:\s*"([^"]+)"/g)]
     .map((m) => m[1])
-  assert.deepEqual(ipcTargets, ["omarchief"], "only the service may own Omarchief IPC")
+  assert.deepEqual(ipcTargets, ["grokchief"], "only the service may own Grok Chief IPC")
 })
 
 test("overview keeps only actions that add something", () => {
   assert.doesNotMatch(panel, /text:\s*"Home"/,
     "returning to a saved position is not a meaningful overview button")
-  assert.doesNotMatch(panel, /Ask Omarchief/,
+  assert.doesNotMatch(panel, /Ask Grok Chief/,
     "the companion itself is already the ask affordance")
   assert.match(panel, /showPrimaryAction:\s*!ready\s*\|\|\s*!hasAgent\s*\|\|\s*working/,
     "agent setup and stopping a turn must remain reachable")
@@ -234,16 +234,16 @@ test("every setting exposed by the popout is accepted by the service", () => {
 
 test("removed invasive and obsolete features stay removed", () => {
   const runtime = `${service}\n${widget}\n${panel}`
-  assert.doesNotMatch(runtime, /omarchief-hooks?|hooksInstalled|hookSet/,
-    "Omarchief must not install or manage another agent's hooks")
+  assert.doesNotMatch(runtime, /grokchief-hooks?|hooksInstalled|hookSet/,
+    "Grok Chief must not install or manage another agent's hooks")
   assert.doesNotMatch(runtime, /cfgConsoleAt|consoleAt\s*\(/,
     "the non-native near-creature console mode must not return")
   assert.doesNotMatch(runtime, /shouldRetryTalk|talkRetry|talkRetried/,
     "an agent turn must never be retried implicitly")
   assert.doesNotMatch(runtime, /timerSeconds|timerEndsAt|cfgReadout|timerWords|timerCompact/,
     "the removed clock/timer product must not return")
-  assert.match(service, /if\s*\(p\s*!==\s*"gritty"\)\s*out\.push\(pluginDir\s*\+\s*"\/pets\/gritty"\)/,
-    "a missing configured pet must end at the bundled Gritty fallback")
+  assert.match(service, /if\s*\(p\s*!==\s*"bloub"\)\s*out\.push\(pluginDir\s*\+\s*"\/pets\/bloub"\)/,
+    "a missing configured pet must end at the bundled Bloub fallback")
 })
 
 test("agent work is guarded across Stop, reload, and plugin removal", () => {
@@ -441,7 +441,7 @@ test("turning theme dressing off restores the original sheet immediately", () =>
 })
 
 test("legacy settings are sealed after their one-time migration", () => {
-  assert.match(service, /migrationMarker\s*:\s*"_omarchiefConfigVersion"/)
+  assert.match(service, /migrationMarker\s*:\s*"_grokchiefConfigVersion"/)
   assert.match(service, /migrationMarked\(before\)\s*\?\s*\(\{\}\)\s*:\s*fileCfg/,
     "a marked canonical entry must never merge the retired settings file again")
   assert.match(service, /next\[root\.migrationMarker\]\s*=\s*root\.configVersion/,
@@ -503,7 +503,7 @@ test("console handoff maps one identified agent before focusing or revealing", (
   const beginEnd = service.indexOf("id: consoleLaunchTimeout", beginStart)
   const beginFlow = service.slice(beginStart, beginEnd)
   assert.match(beginFlow,
-    /consoleLaunchTag = "omarchief-launch-"[\s\S]*?consoleLaunchWorkspace = workspace[\s\S]*?consoleLaunchMonitor = root\.actionMonitor\(monitor\)/,
+    /consoleLaunchTag = "grokchief-launch-"[\s\S]*?consoleLaunchWorkspace = workspace[\s\S]*?consoleLaunchMonitor = root\.actionMonitor\(monitor\)/,
     "the requested toplevel gets a unique launch-only Hyprland tag")
   assert.doesNotMatch(beginFlow, /dispatchFocusMonitor|dispatchToggleSpecial/,
     "the requested monitor is remembered but must not be focused before the window maps")
@@ -583,6 +583,22 @@ test("bundled pets are safe, complete, and uniquely identified", () => {
     const spec = JSON.parse(readFileSync(specPath, "utf8"))
     assert.equal(typeof spec.displayName, "string", `${id} has no human-readable displayName`)
     assert.ok(spec.displayName.trim(), `${id} has an empty displayName`)
+    assert.ok(existsSync(join(dir, "NOTICE")), `${id} has no artwork NOTICE`)
+
+    // A pet may be DRAWN instead of blitted: it names a renderer and ships no
+    // artwork at all, so every check below about sheets and cells would be
+    // asking after something that does not exist. What it must still satisfy
+    // is that the renderer is one this plugin actually has.
+    if (spec.render !== undefined) {
+      assert.equal(spec.render, "bloub", `${id} names an unknown renderer`)
+      assert.equal(spec.spritesheetPath, undefined, `${id} is drawn but names a sheet`)
+      assert.match(read("keystone/Service.qml"),
+        /String\(pet\.render \|\| ""\) === "bloub"/,
+        "the service must recognise the renderer the drawn pet names")
+      assert.ok(existsSync(join(root, "keystone/Bloub.js")), "the drawn pet has no renderer")
+      continue
+    }
+
     assert.ok(Number.isInteger(spec.rows) && spec.rows > 0 && spec.rows <= 64,
       `${id} has invalid rows`)
     const columns = spec.columns ?? 8
@@ -598,7 +614,6 @@ test("bundled pets are safe, complete, and uniquely identified", () => {
     assert.ok(existsSync(sheet), `${id} is missing ${spec.spritesheetPath}`)
     assert.ok(lstatSync(sheet).isFile() && lstatSync(sheet).size > 0,
       `${id} spritesheet is empty`)
-    assert.ok(existsSync(join(dir, "NOTICE")), `${id} has no artwork NOTICE`)
 
     for (const [mood, cell] of Object.entries(spec.faces ?? {})) {
       assert.ok(Array.isArray(cell) && cell.length === 2,
@@ -609,7 +624,7 @@ test("bundled pets are safe, complete, and uniquely identified", () => {
         `${id} face ${mood} has an invalid column`)
     }
   }
-  assert.deepEqual([...ids].sort(), ["gritty", "gritty-front", "quattro"])
+  assert.deepEqual([...ids].sort(), ["bloub", "gritty", "gritty-front", "quattro"])
   const gritty = rgba(join(root, "pets/gritty/gritty-faces.webp"))
   const brandPixel = (70 * gritty.width + 120) * 4
   assert.deepEqual([...gritty.pixels.slice(brandPixel, brandPixel + 3)], [158, 206, 106],
@@ -634,7 +649,7 @@ test("bundled pets are safe, complete, and uniquely identified", () => {
   assert.equal(front.mirror, true,
     "the head-on cable must turn with the body on the right half of a screen")
   assert.match(service,
-    /priority = \{'gritty': 0, 'quattro': 1, 'gritty-front': 2, 'glitchcat': 3\}/,
+    /priority = \{'bloub': 0, 'gritty': 1, 'quattro': 2, 'gritty-front': 3, 'glitchcat': 4\}/,
     "the picker must keep the curated companions ahead of arbitrary local ids")
 })
 
@@ -656,15 +671,15 @@ test("theme repainting clears its floor without touching unmasked artwork", () =
   const version = spawnSync("magick", ["-version"], { encoding: "utf8" })
   assert.equal(version.status, 0, "ImageMagick 7's magick command is required")
   assert.match(version.stdout, /^Version: ImageMagick 7\./m)
-  assert.match(read("tools/omarchief-recolor"),
+  assert.match(read("tools/grokchief-recolor"),
     /-define webp:lossless=true -define webp:method=0/,
     "theme caches must finish inside Omarchy's reveal instead of optimizing ephemeral bytes")
-  const work = mkdtempSync(join(tmpdir(), "omarchief-recolor-"))
+  const work = mkdtempSync(join(tmpdir(), "grokchief-recolor-"))
   try {
     const sourcePath = join(root, "pets/gritty/gritty-faces.webp")
     const basePath = join(work, "base.webp")
     const finalPath = join(work, "final.webp")
-    const tool = join(root, "tools/omarchief-recolor")
+    const tool = join(root, "tools/grokchief-recolor")
     for (const args of [
       [sourcePath, finalPath, "red"],
       [sourcePath, finalPath, "#999900", "361", "100", "12"],
@@ -674,7 +689,7 @@ test("theme repainting clears its floor without touching unmasked artwork", () =
     ]) {
       const rejected = spawnSync(tool, args, { encoding: "utf8" })
       assert.equal(rejected.status, 2, rejected.stderr || rejected.stdout)
-      assert.match(rejected.stderr, /^omarchief-recolor:/)
+      assert.match(rejected.stderr, /^grokchief-recolor:/)
     }
     const directoryOutput = mkdtempSync(join(work, "outdir-"))
     const rejectedDirectory = spawnSync(tool,
@@ -823,7 +838,7 @@ test("release tree contains no generated caches or hook installer", () => {
   for (const path of paths) {
     assert.doesNotMatch(path, /(^|\/)__pycache__(\/|$)|\.py[co]$/,
       `generated Python cache in release tree: ${path}`)
-    assert.doesNotMatch(path, /^tools\/omarchief-hooks?$/,
+    assert.doesNotMatch(path, /^tools\/grokchief-hooks?$/,
       `removed hook installer remains: ${path}`)
   }
 })
@@ -855,9 +870,16 @@ test("cold-start harness isolates user configuration and asserts bundled art", (
     assert.match(source, new RegExp(`\\b${name}=`), `${name} is not isolated`)
   assert.match(source, /PluginRegistry/)
   assert.match(source, /source: bundled/)
+  // Both kinds of body, from inside the isolated install. The default is drawn,
+  // and a check that only proved that would leave the whole spritesheet path —
+  // discovery, the sheet, the grid — untested by the one test that runs a real
+  // shell.
+  assert.match(source, /pets\/bloub/)
   assert.match(source, /pets\/gritty/)
+  assert.match(source, /drawn pet: bloub source: bundled/)
+  assert.match(source, /sprite pet: gritty source: bundled/)
   assert.match(source, /legacy duplicates -> one bar entry/)
   assert.match(source, /retired file remains sealed on restart/)
-  assert.match(source, /missing custom pet -> bundled gritty/)
+  assert.match(source, /missing custom pet -> bundled bloub/)
   assert.match(source, /extreme config -> safe defaults/)
 })
