@@ -235,7 +235,7 @@ ShellRoot {
         for (var p = 0; p < service.installedPets.length; p++)
           petIds.push(String(service.installedPets[p].id || ""))
         if (petIds.join(",") !== "bloub,gritty,quattro,gritty-front") return
-        if (service.petSize !== 130) {
+        if (service.petSize !== 48) {
           root.fail("fresh Bloub did not use its recommended size: " + service.petSize)
           return
         }
@@ -257,7 +257,7 @@ ShellRoot {
         }
         console.log("COLDSTART body: drawn pet: bloub source: bundled")
         console.log("COLDSTART picker: bloub + gritty + quattro + gritty-front")
-        console.log("COLDSTART defaults: Bloub + white circle + neutral + 130")
+        console.log("COLDSTART defaults: Bloub + white circle + neutral + 48")
         console.log("COLDSTART placement: active screen + bottom-right home")
         // Exercise the real 3.x migration after proving a clean install. Old
         // setup instructions could leave settings in a file, more than one
@@ -518,7 +518,7 @@ printf '%s\n' "$out" | grep -q 'COLDSTART body: drawn pet: bloub source: bundled
   || { echo "coldstart-check: the drawn companion never became ready" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q 'COLDSTART picker: bloub + gritty + quattro + gritty-front' \
   || { echo "coldstart-check: bundled pets never reached the picker" >&2; exit 1; }
-printf '%s\n' "$out" | grep -q 'COLDSTART defaults: Bloub + white circle + neutral + 130' \
+printf '%s\n' "$out" | grep -q 'COLDSTART defaults: Bloub + white circle + neutral + 48' \
   || { echo "coldstart-check: fresh companion defaults changed" >&2; exit 1; }
 printf '%s\n' "$out" | grep -q 'COLDSTART migration: legacy duplicates -> one bar entry' \
   || { echo "coldstart-check: legacy settings did not migrate cleanly" >&2; exit 1; }

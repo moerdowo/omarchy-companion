@@ -99,11 +99,15 @@ Panel {
     oftenPresets,
     oftenValue(),
     ready ? "Custom · " + Math.round(Number(service.cfgGlanceChance) * 100) + "%" : "")
+  // A companion is company, not a window. These were sized for the drawn
+  // spritesheets, whose faces need pixels to read at all; the drawn companion
+  // is two capsules on a shape and stays legible far smaller, so the whole
+  // scale comes down and S is genuinely small rather than merely smallest.
   readonly property var sizePresets: [
-    { value: "96", label: "S" },
-    { value: "130", label: "M" },
-    { value: "150", label: "L" },
-    { value: "190", label: "XL" }
+    { value: "48", label: "S" },
+    { value: "64", label: "M" },
+    { value: "88", label: "L" },
+    { value: "120", label: "XL" }
   ]
   readonly property var sizeOptions: withCustomOption(
     sizePresets,

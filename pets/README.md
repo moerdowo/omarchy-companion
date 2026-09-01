@@ -6,7 +6,7 @@ they are already here.
 
 | Id | What it is | Drawn at |
 |---|---|---|
-| `bloub` | One filled shape that morphs between states, with two capsule eyes cut out of it. Computed rather than blitted, so its shape, colour and resting expression are settings. The default. | 130 px |
+| `bloub` | One filled shape that morphs between states, with two capsule eyes cut out of it. Computed rather than blitted, so its shape, colour and resting expression are settings. The default. | 48 px |
 | `gritty` | A weathered machine cube on a cable, in profile. Eight moods, four idle expressions, and a blink. | 150 px |
 | `quattro` | The rally car from Omarchy's Tokyo Night wallpaper, cut out as one still pose and covered by its upstream MIT licence. | 130 px |
 | `gritty-front` | Gritty facing you, with one uncompromising expression. | 150 px |

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0 — 2026-09-01
+
+- Brought the whole size scale down: S/M/L/XL are now 48, 64, 88 and 120
+  pixels, against 96, 130, 150 and 190. The old numbers were chosen for the
+  spritesheet companions, whose drawn faces need pixels to read at all. The
+  drawn companion is two capsules on a shape and stays legible far smaller, so
+  the smallest option can be genuinely small rather than merely the smallest of
+  four large ones.
+- Made the drawn companion recommend 48 rather than 130, so a fresh install is
+  small. A size chosen by hand still wins, and the bundled spritesheet pets
+  keep their own recommendations — 150 for Gritty is what its face needs, and
+  the picker offers it as a custom value.
+
 ## 1.0.0 — 2026-09-01
 
 Grok Chief forks [Omarchief](https://github.com/daventhedude/omarchief) 4.0.0
